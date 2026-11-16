@@ -75,12 +75,19 @@ function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments) {
     if ($LASTEXITCODE) { throw "Script failed ($LASTEXITCODE): $Path" }
 }
 
-function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arguments) {
+function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arguments,[int]$TimeoutSeconds=300) {
     $script:gitSequence++
     $log=Join-Path $LogRoot ("git-{0:d3}.log" -f $script:gitSequence)
-    $result=[OpenCvBoundedProcess]::Run((Get-Command git -CommandType Application | Select-Object -First 1).Source,
-        $Arguments,$Directory,$log,300)
-    if ($result.TimedOut -or $result.ExitCode -ne 0) { throw "Git operation failed or timed out; see $log" }
+    Write-Host "Git operation started (deadline: $TimeoutSeconds seconds). Log: $log"
+    $progress=[Action[double]]{
+        param($Elapsed)
+        Write-Host ("Git still running: {0:n0}/{1} seconds. Log: {2}" -f $Elapsed,$TimeoutSeconds,$log)
+    }
+    $result=[OpenCvBoundedProcess]::RunWithProgress((Get-Command git -CommandType Application | Select-Object -First 1).Source,
+        $Arguments,$Directory,$log,$TimeoutSeconds,$progress)
+    Write-ComparisonJson $result ($log+'.json')
+    if ($result.TimedOut) { throw "Git operation timed out after $TimeoutSeconds seconds (exit $($result.ExitCode)). Log: $log" }
+    if ($result.ExitCode -ne 0) { throw "Git operation failed (exit $($result.ExitCode)). Log: $log" }
     return [IO.File]::ReadAllText($log).Trim()
 }
 
@@ -93,12 +100,12 @@ function New-ComparisonOpenCvSource($Config,$Profile,[string]$Package,[string]$R
     $entry=$Profile.opencv
     $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$($entry.repository).git"}else{
         "https://github.com/$($entry.repository).git"}
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet','--no-tags',$url,$entry.commit)
+    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$entry.commit) 1800
     $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$entry.commit)
     if ($type -cne 'commit') { throw 'The pinned OpenCV SHA does not identify a commit.' }
     $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$entry.bundle_ref,$entry.commit)
     $bundle=Join-Path $Package 'sources\opencv.bundle'
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'bundle','create','--version=2',$bundle,$entry.bundle_ref)
+    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'bundle','create','--version=2',$bundle,$entry.bundle_ref) 1800
     $empty=Join-Path $RunRoot 'opencv-bundle-verify.git'
     $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
     $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$bundle)

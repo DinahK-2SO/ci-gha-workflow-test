@@ -95,6 +95,12 @@ public static class OpenCvBoundedProcess
 
     public static Result Run(string executable, string[] arguments, string directory, string log, int timeoutSeconds)
     {
+        return RunWithProgress(executable, arguments, directory, log, timeoutSeconds, null);
+    }
+
+    public static Result RunWithProgress(string executable, string[] arguments, string directory, string log,
+        int timeoutSeconds, Action<double> progress)
+    {
         if (timeoutSeconds < 1 || timeoutSeconds > 1800) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
         Quote(directory);
         string cmd = Environment.GetEnvironmentVariable("ComSpec");
@@ -120,7 +126,14 @@ public static class OpenCvBoundedProcess
             var result = new Result { ProcessId = process.pid, StartedAt = DateTimeOffset.UtcNow.ToString("o") };
             var clock = Stopwatch.StartNew();
             if (ResumeThread(process.thread) == uint.MaxValue) throw new Win32Exception();
-            uint wait = WaitForSingleObject(process.process, checked((uint)timeoutSeconds * 1000));
+            uint wait;
+            do
+            {
+                uint remaining = (uint)Math.Max(0, timeoutSeconds * 1000L - clock.ElapsedMilliseconds);
+                wait = WaitForSingleObject(process.process, progress == null ? remaining : Math.Min(remaining, 30000u));
+                if (wait != 258 || clock.ElapsedMilliseconds >= timeoutSeconds * 1000L) break;
+                progress?.Invoke(clock.Elapsed.TotalSeconds);
+            } while (true);
             if (wait == 258)
             {
                 result.TimedOut = true;

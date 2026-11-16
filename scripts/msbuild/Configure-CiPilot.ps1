@@ -101,7 +101,7 @@ if ($ExpectedWorkload) {
 $log = Join-Path $root "$BuildDirectory-configure.log"
 $result.configure_log = $log
 try {
-    Add-Type -Path (Join-Path $PSScriptRoot 'BoundedProcess.cs')
+    Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'BoundedProcess.cs') -Raw)
     $env:PATH = "$(Split-Path $python);$(Split-Path $original.cmake);$env:PATH"
     $env:CMAKE_BUILD_PARALLEL_LEVEL = '8'
     $env:OPENCV_DOWNLOAD_PATH = Join-Path $root 'download-cache'
@@ -109,6 +109,7 @@ try {
     $env:PYTHONNOUSERSITE = '1'
     $result.configure = [OpenCvBoundedProcess]::Run($original.cmake,$arguments,$root,$log,900)
     if ($result.configure.TimedOut -or $result.configure.ExitCode -ne 0) { throw 'Fresh native configuration failed.' }
+    $result.msbuild_paths=Assert-NativeBuildPaths $build
     $inspect = @'
 import json
 from pathlib import Path

@@ -189,6 +189,10 @@ if ($Action -eq 'Prepare') {
         throw
     } finally {
         $lock.Dispose()
+        if ($record.status -eq 'preparing') {
+            $record.status='interrupted'
+            $record.error='Study preparation interrupted before completion.'
+        }
         $record.finished_at=(Get-Date).ToString('o')
         $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ownerPath -Encoding utf8
     }

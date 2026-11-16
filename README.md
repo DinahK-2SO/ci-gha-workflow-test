@@ -24,6 +24,14 @@ The dependency cache defaults to
 `$env:LOCALAPPDATA\opencv-build-test\cache`; optional `cache_root` in the same
 config selects another fixed local directory. Corrupt cached files fail
 explicitly rather than being replaced silently.
+NumPy/PyYAML downloads use pip's machine/user configuration and environment
+variables, including `PIP_CONFIG_FILE` and `PIP_INDEX_URL`. With no source
+configuration, pip uses its default PyPI index. A configured source failure
+does not trigger a retry against PyPI or another mirror. Exact wheel filenames
+and hashes remain locked; no packages are installed. The prepared portable
+Python supplies pip unless a virtual environment is active, in which case its
+Python/pip is used to preserve environment-specific settings.
+
 With `work_parent: null`, work/results use
 `$env:LOCALAPPDATA\opencv-build-test\runs`; an explicit fixed local path remains
 supported. Neither default requires the author's drive layout or account.

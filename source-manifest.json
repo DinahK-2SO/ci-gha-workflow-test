@@ -10,8 +10,8 @@
     },
     {
       "path": "msbuild\\BoundedProcess.cs",
-      "bytes": 7738,
-      "sha256": "F22DAB37346ED758E3DEF5EC3F865A6B1C84180DF985A7921AE0D3293298621A"
+      "bytes": 8369,
+      "sha256": "A334AAB0434862A77AAD80229442662DEC89FEA5CD62B82ACA3F6E187034801C"
     },
     {
       "path": "msbuild\\build_contract.py",
@@ -30,8 +30,8 @@
     },
     {
       "path": "msbuild\\Configure-CiPilot.ps1",
-      "bytes": 8792,
-      "sha256": "41BBDD6E88F20CA7793A822BBDCF3EF67A9F372E48305DF80C2FC9DC60F03329"
+      "bytes": 8891,
+      "sha256": "2288A7BE4AC7F2BBBB3656A9DAF79002107206239797231AE2584C0112D75111"
     },
     {
       "path": "msbuild\\Export-CiFunctionalResults.ps1",
@@ -40,13 +40,13 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 20544,
-      "sha256": "23B31566066A36B7AB8B830833F04D6CECD3C20BE7FCD90EA55F45492CBD7500"
+      "bytes": 20799,
+      "sha256": "BCEE2EE6F45CD90CAE174CCF2816468F4F11694683CDD1DD265621226B566D45"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",
-      "bytes": 2534,
-      "sha256": "01DD49198016D5807F182AFC2DC7F4ED81F0E0EFA124C42FC138A37B663BC06A"
+      "bytes": 3311,
+      "sha256": "C1BA61068555AB9B32051693764FA7B1AD63D023B93AEA8020DF5173E0ED3EE0"
     },
     {
       "path": "msbuild\\prepare_ci_action.py",
@@ -60,8 +60,8 @@
     },
     {
       "path": "msbuild\\Test-BoundedProcess.ps1",
-      "bytes": 2410,
-      "sha256": "545CE2056FF9667A450C88DC5BC3BF8DB8E3310D68D38DC9DF462C74A53B1CF4"
+      "bytes": 3631,
+      "sha256": "70883386897FD035B83F182DE0E6E2908D93387314E514EBA328A1E669D425BC"
     },
     {
       "path": "msbuild\\Test-CiFunctionalPair.ps1",

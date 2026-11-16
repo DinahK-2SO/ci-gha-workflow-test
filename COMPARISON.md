@@ -18,7 +18,12 @@ An already assembled comparison folder also works.
 
 Invoking the script authorizes the listed local builds. No second confirmation
 or manually chosen package/protocol/result path is required. Each invocation
-creates a fresh timestamp/UUID run under `work_parent` and prints its location.
+creates a fresh compact UUID-named run under `work_parent` and prints its location.
+Timestamps remain in the receipts. Short run names leave room for MSBuild's
+long sample-project intermediate filenames without changing Windows policies.
+Generated project paths are checked after configuration, before clean/build;
+an overly long custom parent receives an explicit request to shorten
+`work_parent` rather than failing later inside MSBuild.
 Do not invoke it again merely to replace an unfavorable or failed result.
 Leave `work_parent` as `null` to use
 `$env:LOCALAPPDATA\opencv-build-test\runs`, or select an absolute fixed local
@@ -44,12 +49,23 @@ payload from those verified archives; an assembled folder reuses its existing
 immutable payload. Build trees and results remain independent for every run.
 Preparation/download time is not measured native build time.
 
-Cache misses require access to the pinned CMake release, NuGet or Python
-package files. Bootstrap still retrieves the configured Git repositories
+Cache misses require access to the pinned CMake release, NuGet or configured
+Python package sources. Bootstrap still retrieves the configured Git repositories
 even when all dependency archives are cached. Existing Git credentials must
 already work. Failures are explicit and retained in `bootstrap.json` with
 download/source logs; no alternate versions, transport fallback or automatic
 retry is used. Partial payloads are rejected, not silently rebuilt.
+
+Git operations announce their log paths and report a heartbeat every 30 seconds.
+The full-history OpenCV fetch and bundle creation each have a 30-minute deadline;
+other Git commands retain a five-minute deadline. Git exit codes and timeout
+results are saved beside each log in `.log.json`. Bootstrap prints its final
+status and receipt path. An interrupted operation is recorded as `interrupted`,
+not left marked `preparing`, when PowerShell can execute its cleanup block.
+Forced process termination or power loss cannot guarantee receipt finalization.
+If the calling PowerShell session already loaded the runtime helper, the entry
+point uses a fresh child process and propagates its exit status. Updating or
+rerunning the folder therefore does not silently reuse an older loaded helper.
 
 ## Automatic architecture selection
 
@@ -100,7 +116,33 @@ Entries are keyed by checksum algorithm, pinned digest and archive filename.
 Each hit is rehashed before use. A corrupt entry causes an explicit error
 with its path; it is not overwritten, redownloaded, deleted, or replaced by a
 different version. Restore or remove that specific entry explicitly after
-investigating it. Only a missing entry triggers a download from the locked URL.
+investigating it. Only a missing entry triggers acquisition.
+
+NumPy and PyYAML use `pip download`, not hardcoded public wheel URLs. Pip reads
+its normal machine/user configuration and environment variables, including
+`PIP_CONFIG_FILE`, `PIP_INDEX_URL`, additional indexes, `no-index`, local links,
+proxy and certificate settings. No index or trusted host is injected by this
+launcher. If there is no source configuration, pip's default is PyPI; a
+configured source failure never causes the launcher to try PyPI instead.
+Explicit additional indexes remain part of the user's pip configuration.
+The portable Python archive is verified and extracted before wheel acquisition
+to supply pip without a system installation. An active `VIRTUAL_ENV` instead
+selects its Python/pip, preserving site configuration; an invalid environment
+or missing pip fails explicitly rather than silently selecting another setup.
+
+Only the exact locked CPython wheel filename/version/tags and SHA256 are
+accepted. Dependencies and source builds are disabled, and these wheels are
+downloaded, not installed. Pip's version check and automatic retries are
+disabled. The checksum-keyed archive cache remains authoritative.
+Pip diagnostics and pinned requirements are retained beside partial downloads
+in `pip-<id>` directories under the digest's cache directory. Short working
+directory names avoid adding the wheel filename twice to pip's paths on Windows.
+Treat these logs as private: configured feeds
+and authentication tooling can emit account information or sensitive URLs.
+Source addresses/credentials are not copied from pip configuration into
+bootstrap receipts. CMake and the Python interpreter's NuGet archive still use
+their locked URLs; pip configuration does not configure NuGet access. On
+restricted hosts, those archives also require an approved acquisition path.
 
 Downloads use unique `.partial-<id>` files on the cache volume and are renamed
 to the final entry only after verification. Failed partial files remain as
@@ -114,6 +156,22 @@ the resolved cache root, each hit/miss, cache path and pinned identity.
 Caching archives does not reuse a build tree, result directory, or extracted
 mutable tool installation. It also does not resolve network/TLS failures for
 archives that have never been cached.
+
+For maintainer validation, the existing handoff guards can also exercise real
+pip against local fixture indexes (no network or OpenCV builds). Supply an
+existing Python with pip, such as a previously prepared portable interpreter:
+
+```powershell
+$testRoot = Join-Path $env:TEMP ('opencv-pip-guards-' + [guid]::NewGuid().ToString('N'))
+.\Test-HandoffGuards.ps1 -WorkRoot $testRoot -OutputPath "$testRoot.json" `
+    -PipPython 'C:\path\to\python.exe'
+```
+
+The optional pip cases cover configured indexes, environment overrides, active
+virtual-environment configuration, failure without a public fallback, pinned
+hash rejection, and cache reuse/corruption. Default PyPI selection is inspected
+without making a network request. Fixture environment changes are process-local
+and restored when the tests finish.
 
 The script checks the payload and config, retrieves exact CI commits, creates
 a self-contained run package, prepares the pinned OpenCV workload, captures

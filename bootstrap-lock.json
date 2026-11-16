@@ -32,13 +32,13 @@
   },
   "numpy": {
     "filename": "numpy-2.4.2-cp313-cp313-win_amd64.whl",
-    "url": "https://files.pythonhosted.org/packages/43/bc/6352f343522fcb2c04dbaf94cb30cca6fd32c1a750c06ad6231b4293708c/numpy-2.4.2-cp313-cp313-win_amd64.whl",
+    "source": "pip",
     "algorithm": "SHA256",
     "hash": "7df2de1e4fba69a51c06c28f5a3de36731eb9639feb8e1cf7e4a7b0daf4cf622"
   },
   "yaml": {
     "filename": "pyyaml-6.0.3-cp313-cp313-win_amd64.whl",
-    "url": "https://files.pythonhosted.org/packages/97/c9/39d5b874e8b28845e4ec2202b5da735d0199dbe5b8fb85f91398814a9a46/pyyaml-6.0.3-cp313-cp313-win_amd64.whl",
+    "source": "pip",
     "algorithm": "SHA256",
     "hash": "79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c"
   }

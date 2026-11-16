@@ -57,11 +57,15 @@ function Assert-ComparisonSourceTree([string]$SourceRoot) {
                 [Convert]::ToHexString([Convert]::FromBase64String($entry.hash_base64))
             } else { $entry.hash }
             if ($entry.filename -cnotmatch '^[A-Za-z0-9_.-]+$' -or
-                $entry.url -cnotmatch '^https://' -or
                 ($entry.algorithm -ceq 'SHA256' -and $hash -notmatch '^[a-f0-9]{64}$') -or
                 ($entry.algorithm -ceq 'SHA512' -and $hash -notmatch '^[a-f0-9]{128}$') -or
                 $entry.algorithm -cnotin @('SHA256','SHA512')) {
                 throw "Invalid pinned dependency: $name"
+            }
+            if ($name -in @('numpy','yaml')) {
+                $null=Get-ComparisonWheelSpec $entry
+            } elseif (-not $entry.PSObject.Properties['url'] -or $entry.url -cnotmatch '^https://') {
+                throw "Invalid pinned dependency URL: $name"
             }
         }
     }
@@ -85,7 +89,52 @@ function Resolve-ComparisonCacheRoot($Config,[string]$SourceRoot) {
     return Assert-LocalStudyPath $path $SourceRoot
 }
 
-function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRoot) {
+function Get-ComparisonWheelSpec($Entry) {
+    if (-not $Entry.PSObject.Properties['source'] -or $Entry.source -cne 'pip' -or
+        $Entry.algorithm -cne 'SHA256' -or
+        $Entry.filename -cnotmatch '^(?<package>[A-Za-z0-9_]+)-(?<version>[0-9][A-Za-z0-9_.]*)-cp(?<python>[0-9]+)-(?<abi>[A-Za-z0-9_]+)-(?<platform>[A-Za-z0-9_]+)\.whl$') {
+        throw 'Expected a pinned CPython wheel with source=pip and a SHA256 digest.'
+    }
+    [pscustomobject]@{
+        requirement="$($Matches.package)==$($Matches.version)"
+        python=$Matches.python;abi=$Matches.abi;platform=$Matches.platform
+    }
+}
+
+function Receive-ComparisonWheel($Entry,[string]$Partial,[string]$Python) {
+    $spec=Get-ComparisonWheelSpec $Entry
+    if ($env:VIRTUAL_ENV) {
+        $Python=Join-Path $env:VIRTUAL_ENV 'Scripts\python.exe'
+    }
+    if (-not $Python -or -not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Wheel acquisition requires the prepared portable Python, or a valid active virtual environment with pip. No alternate downloader was attempted.'
+    }
+    $work=Join-Path (Split-Path $Partial) ('pip-'+[guid]::NewGuid().ToString('N').Substring(0,12))
+    $wheels=Join-Path $work 'wheels'
+    New-Item -ItemType Directory -Path $wheels | Out-Null
+    $requirements=Join-Path $work 'requirements.txt'
+    "$($spec.requirement) --hash=sha256:$($Entry.hash)" |
+        Set-Content -LiteralPath $requirements -Encoding utf8NoBOM
+    $log=Join-Path $work 'pip.log'
+    $arguments=@('-m','pip','download','--disable-pip-version-check','--no-input',
+        '--no-deps','--only-binary=:all:','--require-hashes','--no-cache-dir','--retries','0',
+        '--implementation','cp','--python-version',$spec.python,'--abi',$spec.abi,
+        '--platform',$spec.platform,'--dest',$wheels,'--requirement',$requirements)
+    Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'scripts\msbuild\BoundedProcess.cs') -Raw)
+    Write-Host 'Using pip package-source configuration; PyPI is only the unconfigured pip default.'
+    $result=[OpenCvBoundedProcess]::Run($Python,$arguments,$work,$log,600)
+    if ($result.TimedOut -or $result.ExitCode -ne 0) {
+        throw "Configured pip download failed (exit $($result.ExitCode), timed out: $($result.TimedOut)). No alternate source was attempted. Private diagnostics: $log"
+    }
+    $download=Join-Path $wheels $Entry.filename
+    if (-not (Test-Path -LiteralPath $download -PathType Leaf) -or
+        @(Get-ChildItem -LiteralPath $wheels -File).Count -ne 1) {
+        throw "pip did not produce the exact locked wheel: $($Entry.filename). Preserve diagnostics at $work; no substitute was accepted."
+    }
+    [IO.File]::Move($download,$Partial)
+}
+
+function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRoot,[string]$PipPython) {
     $expected=if ($Entry.algorithm -eq 'SHA512') {
         [Convert]::ToHexString([Convert]::FromBase64String($Entry.hash_base64))
     } else { $Entry.hash }
@@ -111,7 +160,11 @@ function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRo
             $partial=Join-Path $cacheDirectory ($Entry.filename+'.partial-'+[guid]::NewGuid().ToString('N'))
             Write-Host "Downloading pinned dependency (cache miss): $($Entry.filename)"
             try {
-                Invoke-WebRequest -Uri $Entry.url -OutFile $partial -TimeoutSec 600 -MaximumRetryCount 0
+                if ($Entry.PSObject.Properties['source'] -and $Entry.source -ceq 'pip') {
+                    Receive-ComparisonWheel $Entry $partial $PipPython
+                } else {
+                    Invoke-WebRequest -Uri $Entry.url -OutFile $partial -TimeoutSec 600 -MaximumRetryCount 0
+                }
             } catch {
                 throw "Dependency download failed: $($Entry.filename). Partial download, if any, is preserved at $partial. $($_.Exception.Message)"
             }
@@ -213,23 +266,33 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
         $lock=Get-ComparisonDependencyLock $sourceLock $platform.architecture
         Write-ComparisonJson $lock (Join-Path $payload 'bootstrap-lock.json')
         $archives=@{}
+        $unpacked=Join-Path $root 'unpacked'
+        $pipPython=$null
         Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
         foreach ($name in @('cmake','python','numpy','yaml')) {
             $record.current_operation="acquire_$name"
             Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
-            $dependency=Receive-ComparisonDependency $lock.$name $downloads $cacheRoot
+            $dependency=Receive-ComparisonDependency $lock.$name $downloads $cacheRoot $pipPython
             $archives[$name]=$dependency.path
+            $usesPip=$lock.$name.PSObject.Properties['source'] -and $lock.$name.source -ceq 'pip'
             $record.downloads+=@{
-                name=$name;url=$lock.$name.url;sha256=(Get-FileHash -LiteralPath $archives[$name]).Hash
+                name=$name;source=$(if ($usesPip) { 'pip-configuration' } else { 'locked-url' })
+                url=$(if ($usesPip) { $null } else { $lock.$name.url })
+                sha256=(Get-FileHash -LiteralPath $archives[$name]).Hash
                 cache_status=$dependency.cache_status;cache_path=$dependency.cache_path
                 algorithm=$dependency.algorithm;expected_hash=$dependency.expected_hash
             }
             Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
+            if ($name -eq 'python') {
+                $record.current_operation='prepare_pip'
+                Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
+                Expand-ComparisonDependency $archives.python (Join-Path $unpacked 'python')
+                $pipPython=Join-Path $unpacked 'python\tools\python.exe'
+            }
         }
         $record.current_operation='extract_dependencies'
         Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
-        $unpacked=Join-Path $root 'unpacked'
-        foreach ($name in @('cmake','python','numpy','yaml')) {
+        foreach ($name in @('cmake','numpy','yaml')) {
             Expand-ComparisonDependency $archives[$name] (Join-Path $unpacked $name)
         }
         Move-Item -LiteralPath (Join-Path $unpacked "cmake\$([IO.Path]::GetFileNameWithoutExtension($lock.cmake.filename))") -Destination (Join-Path $payload 'runtime\cmake')
@@ -290,8 +353,16 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
     } finally {
         $env:GIT_TERMINAL_PROMPT=$oldPrompt
         $guard.Dispose()
+        if ($record.status -eq 'preparing') {
+            $record.status='interrupted'
+            $record.error="Bootstrap interrupted during $($record.current_operation); preparation did not complete."
+        }
         $record.finished_at=(Get-Date).ToString('o')
-        if (Test-Path -LiteralPath $root) { Write-ComparisonJson $record (Join-Path $root 'bootstrap.json') }
+        if (Test-Path -LiteralPath $root) {
+            $receipt=Join-Path $root 'bootstrap.json'
+            Write-ComparisonJson $record $receipt
+            Write-Host "Bootstrap status: $($record.status). Operation: $($record.current_operation). Receipt: $receipt"
+        }
     }
     return $folder
 }

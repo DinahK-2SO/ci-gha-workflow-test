@@ -217,7 +217,7 @@ try {
         --ci-commit $repository.target_commit_sha --workdir $configuration.root `
         --builddir $configuration.build_directory --output $output @selectionArgs
     if ($LASTEXITCODE -ne 0) { throw 'Exact action-step extraction failed.' }
-    Add-Type -Path (Join-Path $PSScriptRoot 'BoundedProcess.cs')
+    Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'BoundedProcess.cs') -Raw)
     $env:PATH = "$(Split-Path $protocol.measurement_python);$(Split-Path $protocol.cmake);$env:PATH"
     foreach ($property in $configuration.process_environment.PSObject.Properties) {
         Set-Item -LiteralPath "Env:$($property.Name)" -Value $property.Value
@@ -225,7 +225,9 @@ try {
     $result.clean = [OpenCvBoundedProcess]::Run($protocol.cmake,@(
         '--build',$configuration.build_directory,'--target','clean','--config','Release'),
         $configuration.root,(Join-Path $output 'clean.log'),300)
-    if ($result.clean.TimedOut -or $result.clean.ExitCode -ne 0) { throw 'Pre-build clean failed.' }
+    if ($result.clean.TimedOut -or $result.clean.ExitCode -ne 0) {
+        throw "Pre-build clean failed (exit $($result.clean.ExitCode), timed out: $($result.clean.TimedOut)). Log: $(Join-Path $output 'clean.log')"
+    }
     Start-Sleep -Seconds $protocol.rest_seconds
     & (Join-Path $PSScriptRoot '..\Get-HostSnapshot.ps1') -OutputPath (Join-Path $output 'host-before.json')
     $before = Get-Content -LiteralPath (Join-Path $output 'host-before.json') -Raw | ConvertFrom-Json
@@ -292,7 +294,9 @@ try {
             } finally { Remove-Job -Job $sampler -Force }
         }
     }
-    if ($result.build.TimedOut -or $result.build.ExitCode -ne 0) { throw 'Full build failed or reached its bound; preserve this attempt and stop.' }
+    if ($result.build.TimedOut -or $result.build.ExitCode -ne 0) {
+        throw "Full build failed (exit $($result.build.ExitCode), timed out: $($result.build.TimedOut)). Preserve this attempt. Log: $(Join-Path $output 'action.log')"
+    }
     $trial = Get-Content -LiteralPath (Join-Path $output 'trial.json') -Raw | ConvertFrom-Json
     if ($trial.status -ne 'build_succeeded_pending_correctness') { throw 'The exact full build did not pass its identity checks.' }
     $result.build_seconds = $trial.build_seconds

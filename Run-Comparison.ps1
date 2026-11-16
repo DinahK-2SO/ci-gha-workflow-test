@@ -7,6 +7,15 @@ param(
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+if ('OpenCvBoundedProcess' -as [type]) {
+    $childArguments=@('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-ConfigPath',$ConfigPath)
+    if ($Check) { $childArguments+='-Check' }
+    if ($PrepareOnly) { $childArguments+='-PrepareOnly' }
+    Write-Host 'Starting a fresh PowerShell process to avoid reusing an already loaded runtime helper.'
+    & ([Environment]::ProcessPath) @childArguments
+    if ($LASTEXITCODE -ne 0) { throw "Comparison child process failed (exit $LASTEXITCODE). See the reported receipt/log paths." }
+    return
+}
 $payload=Join-Path $PSScriptRoot 'payload'
 if (-not (Test-Path -LiteralPath $payload)) {
     foreach ($name in @('HandoffSupport.psm1','ComparisonSupport.psm1','BootstrapSupport.psm1')) {
@@ -60,7 +69,7 @@ if ($Check) {
     return
 }
 New-Item -ItemType Directory -Path $parent -Force | Out-Null
-$root=Join-Path $parent ("run-"+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8))
+$root=Join-Path $parent ('run-'+[guid]::NewGuid().ToString('N').Substring(0,12))
 $lock=[IO.File]::Open((Join-Path $parent 'comparison.lock'),
     [IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $record=[ordered]@{
@@ -88,7 +97,7 @@ try {
     $package=Join-Path $root 'package'
     Copy-Item -LiteralPath $payload -Destination $package -Recurse
     $null=Assert-HandoffPackage $package
-    Add-Type -Path (Join-Path $package 'scripts\msbuild\BoundedProcess.cs')
+    Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $package 'scripts\msbuild\BoundedProcess.cs') -Raw)
     $entries=@(New-ComparisonSources $config $package $root)
     $study=Join-Path $root 'study'
     Invoke-ComparisonScript (Join-Path $package 'Start-Study.ps1') @(
@@ -156,8 +165,12 @@ try {
     $env:GIT_TERMINAL_PROMPT=$oldPrompt
     $lock.Dispose()
     if (Test-Path -LiteralPath $root) {
+        if ($record.status -in @('preparing','running')) {
+            $record.status='interrupted'
+            $record.error='Comparison interrupted before completion.'
+        }
         $record.finished_at=(Get-Date).ToString('o')
         Write-ComparisonJson $record $summary
-        Write-Output "Run status: $($record.status). Summary: $summary"
+        Write-Host "Run status: $($record.status). Summary: $summary"
     }
 }
