@@ -16,12 +16,15 @@ def main():
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--builddir", default="build")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--independent-case", action="store_true")
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--condition", choices=("baseline", "fixed"),
                            help="Extract an unchanged baseline/fixed commit, with no public test inputs")
     selection.add_argument("--shared-cap", choices=("false", "true"),
                            help="Historical opt-in replay only")
     args = parser.parse_args()
+    if args.independent_case and args.condition != "baseline":
+        parser.error("An independent case uses the baseline execution slot")
     actual = assert_checkout(args.ci_root, args.ci_commit)
     action_path = args.ci_root / "configure-and-build" / "action.yml"
     action_bytes = action_path.read_bytes()
@@ -47,7 +50,8 @@ def main():
     script_path.write_text(script, encoding="utf-8", newline="\n")
     record = {
         "ci_commit": actual,
-        "comparison_axis": "baseline_vs_fixed_commit" if args.condition else "historical_optin",
+        "comparison_axis": ("independent_sources" if args.independent_case else
+                            "baseline_vs_fixed_commit" if args.condition else "historical_optin"),
         "condition": args.condition,
         "action_sha256": hashlib.sha256(action_bytes).hexdigest(),
         "extracted_build_step_sha256": hashlib.sha256(script_path.read_bytes()).hexdigest(),

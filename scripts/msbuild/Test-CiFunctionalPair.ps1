@@ -14,7 +14,7 @@ $configured=$PSCmdlet.ParameterSetName -eq 'Configured'
 if ($configured) {
     $configuredSelection=Get-Content -LiteralPath $CasesFile -Raw | ConvertFrom-Json
     $cases=@($configuredSelection.cases)
-    if ($cases.Count -lt 2) { throw 'At least two configured results are required.' }
+    if ($cases.Count -lt 1) { throw 'At least one configured result is required.' }
 } else {
     $pair=Get-Content -LiteralPath $ProtocolPath -Raw | ConvertFrom-Json
     $cases=@($pair.order | ForEach-Object {
@@ -25,16 +25,20 @@ $conditions = @()
 $referenceTrial = $null
 $referenceOutputs = $null
 $referenceArchitecture = $null
+$sameCacheAndOutputs = $true
 $consumed = 0.0
 foreach ($case in $cases) {
     $ProtocolPath=$case.protocol
     $condition=$case.condition
     $protocol = Get-Content -LiteralPath $ProtocolPath -Raw | ConvertFrom-Json
     $order = @($protocol.order) -join '|'
-    if ($order -cnotin @('baseline|fixed','fixed|baseline','baseline|shared')) {
+    if ($order -cnotin @('baseline','baseline|fixed','fixed|baseline','baseline|shared')) {
         throw 'The protocol does not identify a supported baseline/candidate pair.'
     }
     $commitComparison = $order -cne 'baseline|shared'
+    if ($configured -and ($order -cne 'baseline' -or $protocol.comparison_axis -cne 'independent_sources')) {
+        throw 'Configured cases require independent source protocols.'
+    }
     $configuration = Get-Content -LiteralPath $protocol.configuration -Raw | ConvertFrom-Json
     $platform=Get-RecordedBuildPlatform $configuration $protocol
     if ($referenceArchitecture -and $referenceArchitecture -cne $platform.architecture) {
@@ -62,7 +66,7 @@ foreach ($case in $cases) {
         throw 'Pre-build clean did not pass under the frozen /nr:false policy.'
     }
     if ($commitComparison -and (
-            $trial.comparison_axis -cne 'baseline_vs_fixed_commit' -or
+            $trial.comparison_axis -cne $protocol.comparison_axis -or
             $trial.condition -cne $condition -or
             @($trial.inputs.PSObject.Properties.Name | Where-Object {$_ -in @('msbuild_shared_cap','msbuild_compiler_jobs')}).Count)) {
         throw 'The primary comparison contains a public experiment control or mismatched condition.'
@@ -82,6 +86,19 @@ foreach ($case in $cases) {
         }
     }
     $ci = $configuration.repositories[$(if($condition -eq 'baseline'){1}else{2})]
+    if ($configured) {
+        foreach ($selected in @(
+            @{prefix='opencv';actual=$configuration.repositories[0]},
+            @{prefix='ci-gha';actual=$ci}
+        )) {
+            $prefix=$selected.prefix
+            if ($selected.actual.repository -cne $case.selection."$prefix-repo" -or
+                $selected.actual.branch_name -cne $case.selection."$prefix-branch" -or
+                $selected.actual.target_commit_sha -cne $case.selection."$prefix-commit") {
+                throw 'Case source selection differs from its configured checkout.'
+            }
+        }
+    }
     foreach ($selection in @(@{actual=$trial.repositories[0]; expected=$ci},
             @{actual=$trial.repositories[1]; expected=$configuration.repositories[0]})) {
         if ($selection.actual.repository -ne $selection.expected.repository -or
@@ -144,10 +161,16 @@ foreach ($case in $cases) {
     $consumed += $(if($configured){$execution.build.OuterWallSeconds}else{$trial.build_seconds})
     $outputs = @($archive.binaries.relative_path | Sort-Object)
     if ($referenceTrial) {
-        foreach ($key in @('runner_sha256','cmake_probe_sha256','cmake_sha256','bash_sha256','cache_sha256')) {
+        foreach ($key in @('runner_sha256','cmake_probe_sha256','cmake_sha256','bash_sha256')) {
             if ($trial.$key -cne $referenceTrial.$key) { throw "A common input changed between conditions: $key" }
         }
-        if (($outputs -join '|') -cne ($referenceOutputs -join '|')) { throw 'Output-file inventory differs between conditions.' }
+        if ($trial.cache_sha256 -cne $referenceTrial.cache_sha256 -or
+            ($outputs -join '|') -cne ($referenceOutputs -join '|')) {
+            $sameCacheAndOutputs=$false
+            if (-not $configured -and $order -cne 'baseline') {
+                throw 'Shared configured cache or output-file inventory differs between paired conditions.'
+            }
+        }
     } else {
         $referenceTrial=$trial
         $referenceOutputs=$outputs
@@ -158,6 +181,8 @@ foreach ($case in $cases) {
         condition=$condition
         status=$execution.status
         test_build_policy=$protocol.test_build_policy
+        cache_sha256=$configuration.cache_sha256
+        workload=$configuration.workload_check
         repositories=$trial.repositories
         selected_cpp_checks_passed=$tests.Count
         architecture=$platform.architecture
@@ -174,7 +199,7 @@ if ($consumed -gt $budget) { throw 'The build-budget boundary was exceeded.' }
 [ordered]@{
     verified_at=(Get-Date).ToString('o')
     status=$(if($configured){'configured_comparison_passed'}else{'functional_pair_passed'})
-    comparison_axis=$(if($configured){'configured_ci_commits'}elseif($commitComparison){'baseline_vs_fixed_commit'}else{'historical_optin'})
+    comparison_axis=$(if($configured){'independent_sources'}else{$protocol.comparison_axis})
     role='functional_qualification'
     performance_eligible=$false
     timing_use='diagnostic_only'
@@ -182,9 +207,11 @@ if ($consumed -gt $budget) { throw 'The build-budget boundary was exceeded.' }
     speedup_claimed=$false
     protocol_sha256=$(if($configured){$null}else{$protocolHash})
     cases_file_sha256=$(if($configured){(Get-FileHash -LiteralPath $CasesFile).Hash}else{$null})
-    cache_sha256=$configuration.cache_sha256
+    cache_sha256=$(if($configured){$null}else{$configuration.cache_sha256})
     architecture=$referenceArchitecture
-    same_common_helpers_tools_cache_and_output_inventory=$true
+    same_common_helpers_and_tools=$true
+    same_common_helpers_tools_cache_and_output_inventory=$sameCacheAndOutputs
+    case_specific_configurations=$configured
     test_build_policy=@{msbuild_node_reuse=$false}
     conditions=$conditions
     consumed_build_budget_seconds=$consumed

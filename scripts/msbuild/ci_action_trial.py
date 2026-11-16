@@ -51,6 +51,34 @@ def read_cmake_cache(builddir):
     return values
 
 
+def read_source_version(source):
+    header = (source / "modules/core/include/opencv2/core/version.hpp").read_text(encoding="utf-8")
+    numbers = []
+    for part in ("MAJOR", "MINOR", "REVISION"):
+        match = re.search(r"(?m)^\s*#define\s+CV_VERSION_" + part + r"\s+([0-9]+)\s*$", header)
+        if match is None:
+            raise ValueError("Cannot determine OpenCV source version: " + part)
+        numbers.append(match.group(1))
+    status = re.search(r'(?m)^\s*#define\s+CV_VERSION_STATUS\s+"([^"]*)"', header)
+    if status is None:
+        raise ValueError("Cannot determine OpenCV version status")
+    return {"runtime_version": ".".join(numbers) + status.group(1), "dll_suffix": "".join(numbers)}
+
+
+def independent_workload(architecture):
+    return {
+        "inventory_policy": "Independent source: validate required workload and freeze its own complete inventory.",
+        "required_options": {
+            "CMAKE_GENERATOR": "Visual Studio 17 2022", "CMAKE_GENERATOR_PLATFORM": architecture,
+            "CMAKE_BUILD_TYPE": "Release", "CL_Z_OPTION": "/Z7", "OPENCV_ENABLE_NONFREE": "ON",
+            "BUILD_LIST": "", "BUILD_SHARED_LIBS": "ON", "BUILD_EXAMPLES": "ON",
+            "BUILD_TESTS": "ON", "BUILD_PERF_TESTS": "ON", "BUILD_opencv_apps": "ON",
+            "BUILD_opencv_python3": "ON", "BUILD_opencv_world": "OFF", "WITH_OPENCL": "OFF",
+        },
+        "minimum_modules": ["opencv_core", "opencv_imgproc", "opencv_python3", "opencv_ts"],
+    }
+
+
 def check_native_python(builddir, architecture="ARM64"):
     values = read_cmake_cache(builddir)
     machines_by_architecture = {"ARM64": 0xAA64, "x64": 0x8664}
@@ -96,7 +124,11 @@ def check_configured_workload(builddir, expected, reference_build=None):
                  if expected["feature_options"].get(key) != actual_options.get(key)}
     if drift:
         raise ValueError("Base-build feature options drifted: " + repr(drift))
-    if expected["modules"] != values["OPENCV_MODULES_BUILD"].split(";"):
+    modules = values["OPENCV_MODULES_BUILD"].split(";")
+    if "minimum_modules" in expected:
+        if not set(expected["minimum_modules"]).issubset(modules):
+            raise ValueError("Required OpenCV modules are absent")
+    elif expected["modules"] != modules:
         raise ValueError("The effective OpenCV module set changed")
 
     def projects(root):
@@ -146,6 +178,7 @@ def main():
     parser.add_argument("--label", required=True)
     parser.add_argument("--build-contract", type=Path,
                         help="Private captured command contract for an arbitrary selected CI commit")
+    parser.add_argument("--independent-case", action="store_true")
     parser.add_argument("--compiler-jobs", type=int, default=8,
                         help="Frozen expected shared compiler budget; does not override the action")
     parser.add_argument("--role", choices=("excluded_pilot", "functional_qualification"), default="excluded_pilot")
@@ -156,6 +189,8 @@ def main():
         parser.error("Historical opt-in replay requires eight compiler slots")
     if args.build_contract and args.shared_cap is not None:
         parser.error("Captured contracts cannot change historical opt-in replay")
+    if args.independent_case and (args.condition != "baseline" or not args.build_contract):
+        parser.error("An independent case requires its baseline slot and captured build contract")
     expected_shared = args.condition == "fixed" or args.shared_cap == "true"
     receipt = args.output / "trial.json"
     record = {
@@ -166,7 +201,8 @@ def main():
         "timing_use": "diagnostic_only",
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "shared_cap": expected_shared,
-        "comparison_axis": "baseline_vs_fixed_commit" if args.condition else "historical_optin",
+        "comparison_axis": ("independent_sources" if args.independent_case else
+                            "baseline_vs_fixed_commit" if args.condition else "historical_optin"),
         "condition": args.condition,
         "project_jobs": 8,
         "expected_shared_compiler_jobs": args.compiler_jobs,

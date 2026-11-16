@@ -81,7 +81,7 @@ foreach ($case in @(
     if (-not $rejected) { throw "Invalid package identity was accepted: $($case.name)" }
     $checks += [ordered]@{test=$case.name;rejected=$true;error=$message}
 }
-$config=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'comparison.json') -Raw | ConvertFrom-Json
+$config=Read-ComparisonConfig (Join-Path $PSScriptRoot 'comparison.json')
 $savedLocalAppData=$env:LOCALAPPDATA
 try {
     $env:LOCALAPPDATA=Join-Path $root 'current-user-data'
@@ -106,29 +106,11 @@ try {
         throw 'Explicit work-parent override was ignored.'
     }
 } finally { $env:LOCALAPPDATA=$savedLocalAppData }
-$config.opencv_repository='fixture/alternative-source'
-$configPath=Join-Path $root 'config-fixture.json'
-Write-ComparisonJson $config $configPath
-$parsed=Read-ComparisonConfig $configPath
-if ((Resolve-ComparisonOpenCvRepository $parsed) -cne 'fixture/alternative-source') {
-    throw 'The configured OpenCV repository was not selected.'
-}
-$config.opencv_repository='https://invalid.example/source.git'
-Write-ComparisonJson $config $configPath
-$rejected=$false
-try { $null=Read-ComparisonConfig $configPath } catch {
-    if ($_.Exception.Message -notlike 'opencv_repository must be*') { throw }
-    $rejected=$true
-}
-if (-not $rejected) { throw 'A repository URL was accepted instead of an explicit owner/name identity.' }
-$config.PSObject.Properties.Remove('opencv_repository')
-$rejected=$false
-try { $null=Resolve-ComparisonOpenCvRepository $config } catch {
-    if ($_.Exception.Message -notlike '*no account-specific repository fallback*') { throw }
-    $rejected=$true
-}
-if (-not $rejected) { throw 'Missing OpenCV repository fell back to an author account.' }
-$checks += [ordered]@{test='portable-path-and-explicit-source-selection';passed=$true}
+$checks += [ordered]@{test='portable-work-and-cache-paths';passed=$true}
+$checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-ComparisonSelections.ps1') `
+    -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'source-selections'))
+$checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-IndependentResults.ps1') `
+    -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'independent-results'))
 
 $buildPaths=Join-Path $root 'build-paths'
 New-Item -ItemType Directory -Path $buildPaths | Out-Null
@@ -139,14 +121,14 @@ $longName=('project' * 13)+'.vcxproj'
 '' | Set-Content -LiteralPath (Join-Path $buildPaths $longName)
 $rejected=$false
 try { $null=Assert-NativeBuildPaths $buildPaths } catch {
-    if ($_.Exception.Message -notlike 'MSBuild intermediate path exceeds*shorter work_parent*') { throw }
+    if ($_.Exception.Message -notlike 'MSBuild intermediate path exceeds*shorter -WorkParent*') { throw }
     $rejected=$true
 }
 if (-not $rejected) { throw 'An overlong generated MSBuild intermediate path was accepted.' }
 $checks += [ordered]@{test='msbuild-intermediate-path-limit-before-clean-or-build';passed=$true}
 
 if ($PipPython) {
-    & $PipPython -B -m unittest discover -s (Join-Path $PSScriptRoot 'scripts\msbuild\tests') -p 'test_cmake_probe.py'
+    & $PipPython -B -m unittest discover -s (Join-Path $PSScriptRoot 'scripts\msbuild\tests') -p 'test_*.py'
     if ($LASTEXITCODE -ne 0) { throw 'Local CMake measurement-adapter tests failed.' }
     $pipChecks=@(& (Get-Module BootstrapSupport) {
         param($Root,$Python)
@@ -309,7 +291,6 @@ function Read-ComparisonConfig($Path) {
     @{}
 }
 function Resolve-ComparisonWorkParent { Join-Path $PSScriptRoot 'unused-work' }
-function Resolve-ComparisonOpenCvRepository { 'fixture/source' }
 '@ | Set-Content -LiteralPath (Join-Path $launcherFixture 'ComparisonSupport.psm1')
 @'
 function Assert-ComparisonSourceTree {}
@@ -365,6 +346,18 @@ if ($frozen.cmake -cne $executable -or $frozen.measurement_python -cne $python -
     throw 'Freeze did not preserve the explicitly selected tools.'
 }
 $checks += [ordered]@{test='explicit-tools-required-and-frozen-without-execution';passed=$true}
+$contract=Join-Path $root 'single-contract.json'
+Write-ComparisonJson @{} $contract
+$singleProtocol=Join-Path $root 'freeze\single.json'
+& $freeze -Action Freeze -IndependentCase -BuildContract $contract -ProtocolPath $singleProtocol `
+    -ConfigurationReceipt $configurationPath -ReferenceHost $hostPath -ToolsFile $toolsPath `
+    -OutputRoot (Join-Path $root 'single-trial')
+$single=Get-Content $singleProtocol -Raw | ConvertFrom-Json
+if (($single.order -join '|') -cne 'baseline' -or $single.order -isnot [array] -or
+    $single.comparison_axis -cne 'independent_sources' -or $single.build_contract -cne $contract) {
+    throw 'An independent case lost its single execution slot or captured contract.'
+}
+$checks += [ordered]@{test='single-case-protocol-with-captured-command';passed=$true}
 
 $seedRoot=Join-Path $root 'minimal-seed'
 New-Item -ItemType Directory -Path $seedRoot | Out-Null

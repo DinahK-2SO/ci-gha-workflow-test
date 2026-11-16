@@ -68,17 +68,21 @@ function Assert-HandoffPackage([string]$Root) {
 
 function Assert-HandoffProfile($Profile, $Manifest = $null) {
     $null=Get-NativeBuildPlatform $Profile.architecture
+    $independent=$Profile.comparison_axis -ceq 'independent_sources'
+    $expectedOrder=if ($independent) {'baseline'} else {'baseline|fixed'}
     if ($Profile.schema_version -ne 2 -or
-        $Profile.comparison_axis -cne 'baseline_vs_fixed_commit' -or
-        (@($Profile.conditions) -join '|') -cne 'baseline|fixed') {
-        throw 'The package profile must select schema 2 and a baseline/fixed commit comparison.'
+        $Profile.comparison_axis -cnotin @('baseline_vs_fixed_commit','independent_sources') -or
+        (@($Profile.conditions) -join '|') -cne $expectedOrder) {
+        throw 'The package profile must select schema 2 and a baseline/fixed comparison or an independent source case.'
     }
-    foreach ($entry in @($Profile.opencv,$Profile.ci_baseline,$Profile.ci_dev)) {
+    $entries=@($Profile.opencv,$Profile.ci_baseline)
+    if (-not $independent) { $entries+=@($Profile.ci_dev) }
+    foreach ($entry in $entries) {
         if ($entry.commit -cnotmatch '^[0-9a-f]{40}$') {
             throw 'A full fixed commit SHA is required for every bundled repository.'
         }
     }
-    if ($Profile.ci_baseline.commit -ceq $Profile.ci_dev.commit) {
+    if (-not $independent -and $Profile.ci_baseline.commit -ceq $Profile.ci_dev.commit) {
         throw 'Baseline and fixed CI commits must differ.'
     }
     if ($Profile.PSObject.Properties['compiler_budget_policy'] -and
@@ -87,7 +91,7 @@ function Assert-HandoffProfile($Profile, $Manifest = $null) {
     }
     if ($Manifest -and ($Manifest.profile_id -cne $Profile.profile_id -or
         $Manifest.comparison_axis -cne $Profile.comparison_axis -or
-        $Manifest.review_commit -cne $Profile.ci_dev.commit -or
+        $Manifest.review_commit -cne $(if($independent){$Profile.ci_baseline.commit}else{$Profile.ci_dev.commit}) -or
         $Manifest.opencv_commit -cne $Profile.opencv.commit)) {
         throw 'Package manifest and profile identities differ.'
     }

@@ -20,8 +20,8 @@
     },
     {
       "path": "msbuild\\ci_action_trial.py",
-      "bytes": 15653,
-      "sha256": "FD8C6411F52D8C1CD4297CDF9A1224176E39CED8546B30A4F0CBF959CB1E885B"
+      "bytes": 17669,
+      "sha256": "CECF619399FCA3F62226DB959C798FDE105DB114ECB4AFF86B46F855DAB7A547"
     },
     {
       "path": "msbuild\\cmake_probe.py",
@@ -30,8 +30,8 @@
     },
     {
       "path": "msbuild\\Configure-CiPilot.ps1",
-      "bytes": 8891,
-      "sha256": "2288A7BE4AC7F2BBBB3656A9DAF79002107206239797231AE2584C0112D75111"
+      "bytes": 9365,
+      "sha256": "1D2FAF1384233A125224D9E4619B04C3889C0FA35C80EEB143B4B6C8B3E02B9E"
     },
     {
       "path": "msbuild\\Export-CiFunctionalResults.ps1",
@@ -40,18 +40,18 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 21348,
-      "sha256": "D8E3A405960231945805C8E0A1009D07555A7707172D7FD3AF05C8E13F2B9C2A"
+      "bytes": 21977,
+      "sha256": "656E5504FB4BF9C9871C645C4AB335017FE82638CDC7657F57A5239553130D13"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",
-      "bytes": 3311,
-      "sha256": "C1BA61068555AB9B32051693764FA7B1AD63D023B93AEA8020DF5173E0ED3EE0"
+      "bytes": 3293,
+      "sha256": "826785D035D82A3302745F91BC694B9CE63D01F69F4D64D7DE79E35369003529"
     },
     {
       "path": "msbuild\\prepare_ci_action.py",
-      "bytes": 3141,
-      "sha256": "5E5AAB5285C22183E9DC5628D902B8CA09D333C28F8472557D281C6E152EE408"
+      "bytes": 3430,
+      "sha256": "C6408876FD4C185AF00A9B55FE2B77CA09079FD4D65D75DB25F871D3068DABC1"
     },
     {
       "path": "msbuild\\Prepare-PythonDevelopment.ps1",
@@ -65,8 +65,8 @@
     },
     {
       "path": "msbuild\\Test-CiFunctionalPair.ps1",
-      "bytes": 11275,
-      "sha256": "F75FF75765A3524B2EEEB5A07FEB33CA93C474CA3C73CC8E2338BF0962DEFB3A"
+      "bytes": 12504,
+      "sha256": "AEDA0090E548E2FE881C3000D93C2B12B76D8B4F28CF2BB03D4401E875805066"
     },
     {
       "path": "msbuild\\tests\\bounded_fixture.py",

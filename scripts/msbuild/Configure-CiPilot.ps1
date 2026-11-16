@@ -27,9 +27,12 @@ $root = $original.root
 $build = Join-Path $root $BuildDirectory
 if (Test-Path -LiteralPath $build) { throw 'A fresh build directory is required; the old cache must remain unchanged.' }
 $profile = Get-Content -LiteralPath $RepositoryProfile -Raw | ConvertFrom-Json
-$entries = @($profile.opencv,$profile.ci_baseline,$profile.ci_dev)
-$paths = @((Join-Path $root 'opencv'),(Join-Path $root 'ci-baseline'),$DevRoot)
-if ($profile.ci_dev.commit -cne $DevCommit) { throw 'The selected dev commit differs from the repository profile.' }
+$independent=$profile.comparison_axis -ceq 'independent_sources'
+$entries = @($profile.opencv,$profile.ci_baseline)
+$paths = @((Join-Path $root 'opencv'),(Join-Path $root 'ci-baseline'))
+if (-not $independent) { $entries+=@($profile.ci_dev); $paths+=@($DevRoot) }
+$selectedCi=if($independent){$profile.ci_baseline}else{$profile.ci_dev}
+if ($selectedCi.commit -cne $DevCommit) { throw 'The selected dev commit differs from the repository profile.' }
 $repositories = @(for ($index=0; $index -lt $entries.Count; $index++) {
     $entry=$entries[$index]
     if ($entry.commit -cnotmatch '^[0-9a-f]{40}$' -or
@@ -115,10 +118,12 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0, sys.argv[1])
-from ci_action_trial import check_native_python, check_configured_workload, read_cmake_cache
+from ci_action_trial import check_native_python, check_configured_workload, read_cmake_cache, independent_workload, read_source_version
 old, new = (Path(value) for value in sys.argv[2:4])
 if len(sys.argv) > 5:
     expected = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8-sig"))
+    if expected["source_commit"] != sys.argv[6]:
+        expected = independent_workload(sys.argv[4])
 else:
     a = read_cmake_cache(old)
     expected = {
@@ -127,13 +132,15 @@ else:
     }
 result = check_configured_workload(new, expected, old)
 result["native_python"] = check_native_python(new, sys.argv[4])
+result["source_version"] = read_source_version(new.parent / "opencv")
 print(json.dumps(result))
 '@
     $inspectionArguments = @('-B','-c',$inspect,$PSScriptRoot,(Join-Path $root 'build'),$build,$platform.architecture)
-    if ($ExpectedWorkload) { $inspectionArguments += $ExpectedWorkload }
+    if ($ExpectedWorkload) { $inspectionArguments += @($ExpectedWorkload,$profile.opencv.commit) }
     $raw = & $original.measurement_python @inspectionArguments
     if ($LASTEXITCODE -ne 0) { throw 'Configured workload/dependency checks failed; do not time this tree.' }
     $result.workload_check = ($raw -join "`n") | ConvertFrom-Json
+    $result.source_version=$result.workload_check.source_version
     $result.cache_sha256 = (Get-FileHash -LiteralPath (Join-Path $build 'CMakeCache.txt')).Hash
     $result.numpy_runtime_query_failed = [bool](Select-String -LiteralPath $log -SimpleMatch "No module named 'numpy'" -Quiet)
     $result.process_environment = [ordered]@{
@@ -155,4 +162,4 @@ print(json.dumps(result))
     }
     $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
 }
-Write-Output "Fresh $($platform.architecture) configuration passes the declared workload and freezes its features/modules/projects for all selected commits; native NumPy runtime remains unverified."
+Write-Output "Fresh $($platform.architecture) configuration passes the declared workload and freezes this case's features/modules/projects; native NumPy runtime remains unverified."

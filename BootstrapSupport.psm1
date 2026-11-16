@@ -78,11 +78,11 @@ function Assert-ComparisonSourceTree([string]$SourceRoot) {
 }
 
 function Resolve-ComparisonCacheRoot($Config,[string]$SourceRoot) {
-    $path=if ($Config.PSObject.Properties['cache_root'] -and $null -ne $Config.cache_root) {
+    $path=if ($Config.PSObject.Properties['cache_root'] -and $Config.cache_root) {
         $Config.cache_root
     } else {
         if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-            throw 'LOCALAPPDATA is unavailable; set cache_root to an explicit local directory.'
+            throw 'LOCALAPPDATA is unavailable; pass -CacheRoot with an explicit local directory.'
         }
         Join-Path $env:LOCALAPPDATA 'opencv-build-test\cache'
     }
@@ -204,16 +204,15 @@ function Expand-ComparisonDependency([string]$Archive,[string]$Destination) {
     [IO.Compression.ZipFile]::ExtractToDirectory($Archive,$Destination)
 }
 
-function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string]$WorkParent) {
+function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string]$WorkParent,
+        [string]$CacheRoot,[string]$SourceTransport='https') {
     Assert-ComparisonSourceTree $SourceRoot
-    $config=Read-ComparisonConfig $ConfigPath
-    $opencvRepository=Resolve-ComparisonOpenCvRepository $config
+    $config=Read-ComparisonConfig $ConfigPath $WorkParent $CacheRoot $SourceTransport
     $parent=Assert-LocalStudyPath $WorkParent $SourceRoot
     $null=Resolve-ComparisonCacheRoot $config $SourceRoot
     $tools=Find-HandoffToolchain
     $platform=Get-NativeBuildPlatform $tools.architecture
     $profile=Get-Content -LiteralPath (Join-Path $SourceRoot 'profile.json') -Raw | ConvertFrom-Json
-    $profile.opencv.repository=$opencvRepository
     $profile.architecture=$platform.architecture
     $profile.profile_id="opencv5x-windows-$($platform.architecture.ToLowerInvariant())-functional"
     if ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($parent)).AvailableFreeSpace -lt $profile.minimum_free_disk_gib*1GB) {
@@ -245,11 +244,13 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
             Copy-Item -LiteralPath (Join-Path $SourceRoot $name) -Destination (Join-Path $folder $name)
         }
         Copy-Item -LiteralPath $ConfigPath -Destination (Join-Path $folder 'comparison.json')
-        $config=Read-ComparisonConfig (Join-Path $folder 'comparison.json')
+        $config=Read-ComparisonConfig (Join-Path $folder 'comparison.json') $WorkParent $CacheRoot $SourceTransport
         $cacheRoot=Resolve-ComparisonCacheRoot $config $SourceRoot
         $record.cache_root=$cacheRoot
         $record.config_sha256=(Get-FileHash -LiteralPath (Join-Path $folder 'comparison.json')).Hash
-        Copy-Item -LiteralPath (Join-Path $SourceRoot 'COMPARISON.md') -Destination (Join-Path $folder 'README.md')
+        foreach ($name in @('README.md','COMPARISON.md')) {
+            Copy-Item -LiteralPath (Join-Path $SourceRoot $name) -Destination (Join-Path $folder $name)
+        }
         foreach ($name in @('Start-Study.ps1','HandoffSupport.psm1','source-manifest.json')) {
             Copy-Item -LiteralPath (Join-Path $SourceRoot $name) -Destination (Join-Path $payload $name)
         }
@@ -324,9 +325,6 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
         } (Join-Path $payload 'inputs\numpy\origin.json')
         Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $payload 'scripts\msbuild\BoundedProcess.cs') -Raw)
         $env:GIT_TERMINAL_PROMPT='0'
-        $record.current_operation='fetch_opencv'
-        Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
-        New-ComparisonOpenCvSource $config $profile $payload $root
         @('Run-Comparison.ps1','ComparisonSupport.psm1') | ForEach-Object {
             @{name=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $folder $_)).Hash}
         } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'comparison-launchers.json') -Encoding utf8

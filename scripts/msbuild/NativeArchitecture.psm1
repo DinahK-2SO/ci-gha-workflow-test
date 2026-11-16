@@ -55,7 +55,7 @@ function Assert-NativeBuildPaths([string]$BuildDirectory) {
         $fileList=Join-Path $project.DirectoryName "$($project.BaseName).dir\Release\$($project.Name).FileListAbsolute.txt"
         if ($fileList.Length -gt $longest.Length) { $longest=$fileList }
         if ($fileList.Length -ge 260) {
-            throw "MSBuild intermediate path exceeds its 259-character limit ($($fileList.Length) characters). Set a shorter work_parent in comparison.json and create a fresh run; no system policy change is required. Path: $fileList"
+            throw "MSBuild intermediate path exceeds its 259-character limit ($($fileList.Length) characters). Pass a shorter -WorkParent and create a fresh run; no system policy change is required. Path: $fileList"
         }
     }
     [ordered]@{longest_file_list_path=$longest;length=$longest.Length;limit=259}

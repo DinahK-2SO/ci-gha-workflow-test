@@ -2,72 +2,69 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 function Write-ComparisonJson($Value,[string]$Path) {
-    $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $Path -Encoding utf8
+    ConvertTo-Json -InputObject $Value -Depth 20 | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
-function Read-ComparisonConfig([string]$Path) {
-    $config=Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    $keys=@('schema_version','repository','branch_name','source_transport','work_parent','commits')
-    if (@($config.PSObject.Properties.Name | Where-Object {$_ -notin ($keys+@('cache_root','opencv_repository'))}).Count -or
-        @($keys | Where-Object {$_ -notin $config.PSObject.Properties.Name}).Count) {
-        throw 'Comparison config has missing or unknown fields.'
+function Read-ComparisonConfig([string]$Path,[string]$WorkParent,[string]$CacheRoot,
+        [ValidateSet('https','ssh')][string]$SourceTransport='https') {
+    $selections=Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -NoEnumerate
+    if ($selections -isnot [array] -or $selections.Count -lt 1 -or $selections.Count -gt 8) {
+        throw 'comparison.json must be a JSON array containing one to eight source-selection objects.'
     }
-    if ($config.schema_version -ne 1 -or
-        $config.repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
-        $config.branch_name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
-        $config.source_transport -cnotin @('https','ssh')) {
-        throw 'Invalid schema, repository, branch or source transport.'
-    }
-    if ($config.PSObject.Properties['opencv_repository'] -and
-        ($config.opencv_repository -isnot [string] -or $config.opencv_repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')) {
-        throw 'opencv_repository must be an owner/name repository containing the pinned OpenCV commit, not a URL or credential.'
-    }
-    if ($null -ne $config.work_parent -and
-        ($config.work_parent -isnot [string] -or $config.work_parent -notmatch '^[A-Za-z]:\\')) {
-        throw 'work_parent must be null (the LOCALAPPDATA default) or a fully qualified local drive path.'
-    }
-    if ($config.PSObject.Properties['cache_root'] -and $null -ne $config.cache_root -and
-        ($config.cache_root -isnot [string] -or $config.cache_root -notmatch '^[A-Za-z]:\\')) {
-        throw 'cache_root must be null (the LOCALAPPDATA default) or a fully qualified local drive path.'
-    }
-    & git check-ref-format "refs/heads/$($config.branch_name)"
-    if ($LASTEXITCODE) { throw 'Invalid Git branch name.' }
-    $commits=@($config.commits)
-    if ($commits.Count -lt 2 -or $commits.Count -gt 8) { throw 'Select two to eight distinct commits.' }
+    $required=@('opencv-repo','opencv-branch','opencv-commit','ci-gha-repo','ci-gha-branch','ci-gha-commit')
     $labels=@{}
-    $ids=@{}
-    foreach ($entry in $commits) {
-        if ((@($entry.PSObject.Properties.Name | Sort-Object) -join '|') -cne 'commit|label' -or
-            $entry.label -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{0,31}$' -or
-            $entry.commit -cnotmatch '^[0-9a-f]{40}$' -or
-            $labels.ContainsKey($entry.label) -or $ids.ContainsKey($entry.commit)) {
-            throw 'Each selection requires a unique label and a distinct full lowercase commit SHA.'
+    for ($index=0; $index -lt $selections.Count; $index++) {
+        $entry=$selections[$index]
+        if ($entry -isnot [pscustomobject] -or
+            @($required | Where-Object {$_ -cnotin $entry.PSObject.Properties.Name}).Count -or
+            @($entry.PSObject.Properties.Name | Where-Object {$_ -cnotin ($required+@('label'))}).Count) {
+            throw 'Each case requires opencv-repo/branch/commit and ci-gha-repo/branch/commit; only label is optional.'
+        }
+        foreach ($prefix in @('opencv','ci-gha')) {
+            $repository=$entry."$prefix-repo"
+            $branch=$entry."$prefix-branch"
+            $commit=$entry."$prefix-commit"
+            if ($repository -isnot [string] -or $repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+                throw "$prefix-repo must be an owner/name repository, not a URL or credential."
+            }
+            if ($branch -isnot [string] -or $branch -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$') {
+                throw "$prefix-branch must be an explicit Git branch name."
+            }
+            & git check-ref-format "refs/heads/$branch"
+            if ($LASTEXITCODE) { throw "Invalid Git branch: $branch" }
+            if ($commit -isnot [string] -or $commit -cnotmatch '^[0-9a-f]{40}$') {
+                throw "$prefix-commit must be a full lowercase 40-character commit SHA."
+            }
+        }
+        if (-not $entry.PSObject.Properties['label']) {
+            $entry | Add-Member -NotePropertyName label -NotePropertyValue "case-$($index+1)"
+        }
+        if ($entry.label -isnot [string] -or $entry.label -cnotmatch '^[A-Za-z][A-Za-z0-9_-]{0,31}$' -or
+            $labels.ContainsKey($entry.label)) {
+            throw 'Each case label must be unique and contain only letters, digits, underscores or hyphens.'
         }
         $labels[$entry.label]=$true
-        $ids[$entry.commit]=$true
     }
-    return $config
+    foreach ($pathValue in @($WorkParent,$CacheRoot)) {
+        if ($pathValue -and $pathValue -notmatch '^[A-Za-z]:\\') {
+            throw 'WorkParent and CacheRoot must be absolute local drive paths.'
+        }
+    }
+    return [pscustomobject]@{
+        cases=$selections;work_parent=$WorkParent;cache_root=$CacheRoot;source_transport=$SourceTransport
+    }
 }
 
 function Resolve-ComparisonWorkParent($Config,[string]$SourceRoot) {
-    $path=if ($null -ne $Config.work_parent) {
+    $path=if ($Config.work_parent) {
         $Config.work_parent
     } else {
         if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-            throw 'LOCALAPPDATA is unavailable; set work_parent to an explicit local directory.'
+            throw 'LOCALAPPDATA is unavailable; pass -WorkParent with an explicit local directory.'
         }
         Join-Path $env:LOCALAPPDATA 'opencv-build-test\runs'
     }
     return Assert-LocalStudyPath $path $SourceRoot
-}
-
-function Resolve-ComparisonOpenCvRepository($Config) {
-    if (-not $Config.PSObject.Properties['opencv_repository'] -or
-        $Config.opencv_repository -isnot [string] -or
-        $Config.opencv_repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
-        throw 'Source bootstrap requires opencv_repository in comparison.json; no account-specific repository fallback is used.'
-    }
-    return $Config.opencv_repository
 }
 
 function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments) {
@@ -91,88 +88,102 @@ function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arg
     return [IO.File]::ReadAllText($log).Trim()
 }
 
-function New-ComparisonOpenCvSource($Config,$Profile,[string]$Package,[string]$RunRoot) {
-    $script:gitSequence=0
-    $logs=Join-Path $RunRoot 'opencv-source-logs'
-    New-Item -ItemType Directory -Path $logs | Out-Null
-    $bare=Join-Path $RunRoot 'opencv-cache.git'
-    $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$bare)
-    $entry=$Profile.opencv
-    $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$($entry.repository).git"}else{
-        "https://github.com/$($entry.repository).git"}
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$entry.commit) 1800
-    $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$entry.commit)
-    if ($type -cne 'commit') { throw 'The pinned OpenCV SHA does not identify a commit.' }
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$entry.bundle_ref,$entry.commit)
-    $bundle=Join-Path $Package 'sources\opencv.bundle'
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'bundle','create','--version=2',$bundle,$entry.bundle_ref) 1800
-    $empty=Join-Path $RunRoot 'opencv-bundle-verify.git'
-    $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$bundle)
-}
-
 function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch]$WithoutSeed) {
     $script:gitSequence=0
     $logs=Join-Path $RunRoot 'source-logs'
     New-Item -ItemType Directory -Path $logs | Out-Null
-    $bare=Join-Path $RunRoot 'ci-cache.git'
-    $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$bare)
-    $oldProfile=Get-Content -LiteralPath (Join-Path $Package 'profile.json') -Raw | ConvertFrom-Json
-    $bundle=Join-Path $Package 'sources\ci.bundle'
-    if ($WithoutSeed) {
-        if (Test-Path -LiteralPath $bundle) { throw 'Seed-free bootstrap must not replace an existing source bundle.' }
-    } else {
-        $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet',$bundle,
-            'refs/heads/*:refs/remotes/seed/*')
-    }
-    $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$($Config.repository).git"}else{
-        "https://github.com/$($Config.repository).git"}
-    $branch=Invoke-ComparisonGit $RunRoot $logs @('ls-remote','--exit-code',$url,"refs/heads/$($Config.branch_name)")
-    if ($branch -notmatch '^([0-9a-f]{40})\s+refs/heads/') { throw 'Unexpected remote branch response.' }
-    $remoteHead=$Matches[1]
-    $refs=@()
-    $entries=@()
-    for ($index=0; $index -lt $Config.commits.Count; $index++) {
-        $entry=$Config.commits[$index]
-        $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet','--no-tags',$url,$entry.commit)
-        $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$entry.commit)
-        if ($type -cne 'commit') { throw 'The selected SHA does not identify a commit.' }
-        $ref="refs/heads/comparison-$($index+1)"
-        $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$ref,$entry.commit)
-        $refs+=$ref
-        $entries+=[ordered]@{
-            repository=$Config.repository; branch_name=$Config.branch_name; commit=$entry.commit
-            bundle='sources/ci.bundle'; bundle_ref=$ref
+    $entries=@($Config.cases | ForEach-Object { [ordered]@{label=$_.label;opencv=$null;ci=$null} })
+    foreach ($kind in @('opencv','ci')) {
+        $prefix=if ($kind -eq 'ci') {'ci-gha'} else {'opencv'}
+        $timeout=if ($kind -eq 'opencv') {1800} else {300}
+        $bare=Join-Path $RunRoot "$kind-cache.git"
+        $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$bare)
+        $bundle=Join-Path $Package "sources\$kind.bundle"
+        if ($WithoutSeed) {
+            if (Test-Path -LiteralPath $bundle) { throw 'Seed-free bootstrap must not replace an existing source bundle.' }
+        } else {
+            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet',$bundle,
+                'refs/heads/*:refs/remotes/seed/*') $timeout
         }
+        $refs=@()
+        $branches=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+        $fetched=[Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
+        for ($index=0; $index -lt $Config.cases.Count; $index++) {
+            $selection=$Config.cases[$index]
+            $repository=$selection."$prefix-repo"
+            $branchName=$selection."$prefix-branch"
+            $commit=$selection."$prefix-commit"
+            $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$repository.git"}else{"https://github.com/$repository.git"}
+            $branchKey="$repository|$branchName"
+            if (-not $branches.ContainsKey($branchKey)) {
+                $branch=Invoke-ComparisonGit $RunRoot $logs @('ls-remote','--exit-code',$url,"refs/heads/$branchName")
+                if ($branch -cnotmatch ('^([0-9a-f]{40})\s+'+[regex]::Escape("refs/heads/$branchName")+'$')) {
+                    throw 'Unexpected remote branch response.'
+                }
+                $branches[$branchKey]=$Matches[1]
+            }
+            $fetchKey="$repository|$commit"
+            if (-not $fetched.ContainsKey($fetchKey)) {
+                $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$commit) $timeout
+                $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$commit)
+                if ($type -cne 'commit') { throw 'The selected SHA does not identify a commit.' }
+                $fetched[$fetchKey]=$true
+            }
+            $ref="refs/heads/comparison-$($index+1)"
+            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$ref,$commit)
+            $refs+=$ref
+            $entries[$index][$kind]=[ordered]@{
+                repository=$repository;branch_name=$branchName;commit=$commit
+                bundle="sources/$kind.bundle";bundle_ref=$ref
+                branch_head_at_check=$branches[$branchKey]
+            }
+        }
+        $newBundle=Join-Path $RunRoot "selected-$kind.bundle"
+        $null=Invoke-ComparisonGit $RunRoot $logs (@("--git-dir=$bare",'bundle','create','--version=2',$newBundle)+$refs) $timeout
+        $empty=Join-Path $RunRoot "$kind-bundle-verify.git"
+        $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
+        $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle) $timeout
+        Copy-Item -LiteralPath $newBundle -Destination $bundle
     }
-    $newBundle=Join-Path $RunRoot 'selected-ci.bundle'
-    $null=Invoke-ComparisonGit $RunRoot $logs (@("--git-dir=$bare",'bundle','create','--version=2',$newBundle)+$refs)
-    $empty=Join-Path $RunRoot 'bundle-verify.git'
-    $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
-    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle)
-    Copy-Item -LiteralPath $newBundle -Destination $bundle
-    $oldProfile.ci_baseline=$entries[0]
-    $oldProfile.ci_dev=$entries[1]
-    $oldProfile.profile_id='configured-commit-comparison'
-    Write-ComparisonJson $oldProfile (Join-Path $Package 'profile.json')
     Write-ComparisonJson ([ordered]@{
-        repository=$Config.repository; branch_name=$Config.branch_name
-        branch_head_at_check=$remoteHead; selected=$entries
+        selected=$entries
         branch_is_provenance_not_a_floating_execution_target=$true
     }) (Join-Path $Package 'sources\provenance.json')
+    Set-ComparisonCaseProfile $Package $entries[0]
+    return $entries
+}
+
+function Set-ComparisonCaseProfile([string]$Package,$Selection) {
+    $profile=Get-Content -LiteralPath (Join-Path $Package 'profile.json') -Raw | ConvertFrom-Json
+    $profile.opencv=$Selection.opencv
+    $profile.ci_baseline=$Selection.ci
+    $profile.PSObject.Properties.Remove('ci_dev')
+    $profile.profile_id='configured-source-case'
+    $profile.comparison_axis='independent_sources'
+    $profile.conditions=@('baseline')
+    Write-ComparisonJson $profile (Join-Path $Package 'profile.json')
     $manifestPath=Join-Path $Package 'package-manifest.json'
     $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $manifest.profile_id=$oldProfile.profile_id
-    $manifest.review_commit=$oldProfile.ci_dev.commit
+    $manifest.profile_id=$profile.profile_id
+    $manifest.comparison_axis=$profile.comparison_axis
+    $manifest.review_commit=$profile.ci_baseline.commit
+    $manifest.opencv_commit=$profile.opencv.commit
     $manifest.created_at=(Get-Date).ToString('o')
     $manifest.files=@(Get-PackageInventory $Package)
     Write-ComparisonJson $manifest $manifestPath
     $null=Assert-HandoffPackage $Package
-    return $entries
+    Assert-HandoffProfile $profile $manifest
+}
+
+function New-ComparisonCasePackage([string]$Package,$Selection,[string]$Destination) {
+    if (Test-Path -LiteralPath $Destination) { throw 'Preserve the existing case package.' }
+    Copy-Item -LiteralPath $Package -Destination $Destination -Recurse
+    $null=Assert-HandoffPackage $Destination
+    Set-ComparisonCaseProfile $Destination $Selection
 }
 
 function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$SummaryPath) {
-    $consumed=0.0
+    $consumed=[double]$Record.consumed_outer_build_seconds
     foreach ($case in $Cases) {
         if ($consumed+1800 -gt $Record.build_budget_seconds) { throw 'Insufficient reserved native-build budget.' }
         $case.status='running'
@@ -207,5 +218,4 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
 }
 
 Export-ModuleMember -Function Read-ComparisonConfig,Write-ComparisonJson,Invoke-ComparisonScript,
-    New-ComparisonSources,New-ComparisonOpenCvSource,Invoke-ComparisonCases,
-    Resolve-ComparisonWorkParent,Resolve-ComparisonOpenCvRepository
+    New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent

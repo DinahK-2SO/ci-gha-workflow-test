@@ -11,6 +11,7 @@ param(
     [switch]$LegacyOptIn,
     [switch]$CandidateFirst,
     [switch]$SampleResources,
+    [switch]$IndependentCase,
     [string]$BuildContract,
     [ValidateRange(1,2147483647)][int]$SharedCompilerJobs = 8
 )
@@ -22,6 +23,9 @@ if ($Condition) { $Condition = $Condition.ToLowerInvariant() }
 $helperNames = @('Invoke-CiPilot.ps1','ci_action_trial.py','cmake_probe.py',
     'prepare_ci_action.py','BoundedProcess.cs','NativeArchitecture.psm1','..\Get-HostSnapshot.ps1')
 if ($Action -eq 'Freeze') {
+    if ($IndependentCase -and ($LegacyOptIn -or $CandidateFirst -or -not $BuildContract)) {
+        throw 'An independent case requires its captured build contract and cannot select a paired experiment.'
+    }
     if ($BuildContract -and $LegacyOptIn) { throw 'Captured contracts require a commit comparison.' }
     if ($BuildContract) { $helperNames += 'build_contract.py' }
     if ($CandidateFirst -and $LegacyOptIn) {
@@ -83,8 +87,8 @@ if ($Action -eq 'Freeze') {
         architecture=$platform.architecture
         reference_host=$ReferenceHost
         output_root=$OutputRoot
-        order=$(if($LegacyOptIn){@('baseline','shared')}elseif($CandidateFirst){@('fixed','baseline')}else{@('baseline','fixed')})
-        comparison_axis=$(if($LegacyOptIn){'historical_optin'}else{'baseline_vs_fixed_commit'})
+        order=@(if($IndependentCase){'baseline'}elseif($LegacyOptIn){'baseline';'shared'}elseif($CandidateFirst){'fixed';'baseline'}else{'baseline';'fixed'})
+        comparison_axis=$(if($IndependentCase){'independent_sources'}elseif($LegacyOptIn){'historical_optin'}else{'baseline_vs_fixed_commit'})
         build_contract=$BuildContract
         test_build_policy=@{msbuild_node_reuse=$false}
         resource_sampling=[bool]$SampleResources
@@ -100,7 +104,7 @@ if ($Action -eq 'Freeze') {
         cpu_background_is_observation_only=$true
         formal_measurement_cpu_limit_percent=10
         metric='Diagnostic wall seconds around the real native CMake build; not a performance sample or benefit claim.'
-        cache_policy='Same configured tree; MSBuild clean before each build. No OS cache flush or system-setting changes.'
+        cache_policy='Frozen case-specific configured tree; MSBuild clean before the build. No OS cache flush or system-setting changes.'
         acceptance='Successful full build, unchanged source/cache/dependencies, native artifacts/version, ten selected non-skipped C++ checks and raw binding DLL load. Not full CI or native NumPy/Python module qualification.'
         cmake=$tools[0]
         measurement_python=$tools[1]
@@ -125,7 +129,7 @@ if ($Action -eq 'Freeze') {
             }
         )
     } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $ProtocolPath -Encoding utf8
-    Write-Output 'Frozen one baseline and one candidate functional build; timings are diagnostic only. No build started.'
+    Write-Output 'Frozen functional build protocol; timings are diagnostic only. No build started.'
     return
 }
 
@@ -138,10 +142,13 @@ if (-not $protocol.PSObject.Properties['test_build_policy'] -or
     throw 'This harness requires a newly frozen local /nr:false test policy; prior results are not retargeted.'
 }
 $order = @($protocol.order) -join '|'
-if ($order -cnotin @('baseline|fixed','fixed|baseline','baseline|shared') -or $Condition -notin $protocol.order) {
+if ($order -cnotin @('baseline','baseline|fixed','fixed|baseline','baseline|shared') -or $Condition -notin $protocol.order) {
     throw 'The selected condition is not part of a supported frozen comparison.'
 }
 $isCommitComparison = $order -cne 'baseline|shared'
+if ($order -ceq 'baseline' -and ($protocol.comparison_axis -cne 'independent_sources' -or -not $protocol.build_contract)) {
+    throw 'An independent case requires its frozen source axis and command contract.'
+}
 if ($protocol.role -ne 'functional_qualification' -or $protocol.performance_eligible -ne $false -or
     $protocol.cpu_background_is_observation_only -ne $true) {
     throw 'This runner requires the separately frozen, non-performance functional protocol.'
@@ -170,7 +177,7 @@ $result = [ordered]@{
     timing_use='diagnostic_only'
     condition=$Condition
     architecture=$platform.architecture
-    comparison_axis=$(if($isCommitComparison){'baseline_vs_fixed_commit'}else{'historical_optin'})
+    comparison_axis=$protocol.comparison_axis
     protocol_sha256=(Get-FileHash -LiteralPath $ProtocolPath).Hash
     test_build_policy=$protocol.test_build_policy
     native_numpy_runtime_verified=$false
@@ -221,6 +228,7 @@ try {
     $repository = if ($Condition -eq 'baseline') {$configuration.repositories[1]} else {$configuration.repositories[2]}
     $shared = if ($Condition -eq 'baseline') {'false'} else {'true'}
     $selectionArgs = if ($isCommitComparison) {@('--condition',$Condition)} else {@('--shared-cap',$shared)}
+    if ($order -ceq 'baseline') { $selectionArgs+=@('--independent-case') }
     & $protocol.preparer_python -B (Join-Path $PSScriptRoot 'prepare_ci_action.py') --ci-root $repository.path `
         --ci-commit $repository.target_commit_sha --workdir $configuration.root `
         --builddir $configuration.build_directory --output $output @selectionArgs
@@ -286,9 +294,9 @@ try {
         '--workdir',$configuration.root,'--builddir',$configuration.build_directory,
         '--architecture',$platform.architecture,
         '--cache-sha256',$configuration.cache_sha256,'--output',$output,
-        '--cmake',$protocol.cmake,'--bash',$protocol.bash,$selectionArgs[0],$selectionArgs[1],
+        '--cmake',$protocol.cmake,'--bash',$protocol.bash,
         '--compiler-jobs',[string]$protocol.shared_compiler_jobs,
-        '--role','functional_qualification','--label',"native-base-$Condition-functional") + $contractArgs,
+        '--role','functional_qualification','--label',"native-base-$Condition-functional") + $selectionArgs + $contractArgs,
             $configuration.root,(Join-Path $output 'action.log'),$protocol.build_timeout_seconds)
     } finally {
         if ($sampler) {
@@ -310,16 +318,17 @@ try {
     $result.build_seconds = $trial.build_seconds
     $bin = Join-Path $configuration.root "$($configuration.build_directory)\bin\Release"
     $pyd = Join-Path $configuration.root "$($configuration.build_directory)\lib\python3\Release\cv2.cp313-$($platform.python_tag).pyd"
+    $version=$configuration.source_version
     $result.artifacts = @(
         Native-Artifact (Join-Path $bin 'opencv_version.exe')
-        Native-Artifact (Join-Path $bin 'opencv_core520.dll')
-        Native-Artifact (Join-Path $bin 'opencv_imgproc520.dll')
+        Native-Artifact (Join-Path $bin "opencv_core$($version.dll_suffix).dll")
+        Native-Artifact (Join-Path $bin "opencv_imgproc$($version.dll_suffix).dll")
         Native-Artifact $pyd
     )
     $result.version = [OpenCvBoundedProcess]::Run((Join-Path $bin 'opencv_version.exe'),@(),
         $bin,(Join-Path $output 'version.log'),30)
     if ($result.version.ExitCode -ne 0 -or $result.version.TimedOut -or
-        (Get-Content -LiteralPath (Join-Path $output 'version.log') -Raw).Trim() -ne '5.2.0-dev') {
+        (Get-Content -LiteralPath (Join-Path $output 'version.log') -Raw).Trim() -cne $version.runtime_version) {
         throw 'The output library version does not match the fixed source.'
     }
     $result.smoke = @()

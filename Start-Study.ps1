@@ -12,6 +12,7 @@ Import-Module (Join-Path $PSScriptRoot 'HandoffSupport.psm1') -Force
 $manifest=Assert-HandoffPackage $PSScriptRoot
 $profile=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'profile.json') -Raw | ConvertFrom-Json
 Assert-HandoffProfile $profile $manifest
+$independent=$profile.comparison_axis -ceq 'independent_sources'
 $tools=Find-HandoffToolchain -Architecture $profile.architecture
 $platform=Get-NativeBuildPlatform $profile.architecture
 Import-Module (Join-Path $PSScriptRoot 'scripts\msbuild\NativeArchitecture.psm1')
@@ -20,7 +21,7 @@ if ($Action -eq 'Check') {
         status='package_and_installed_toolchain_checked'
         profile=$profile.profile_id
         architecture=$platform.architecture
-        review_commit=$profile.ci_dev.commit
+        review_commit=$(if($independent){$profile.ci_baseline.commit}else{$profile.ci_dev.commit})
         baseline_commit=$profile.ci_baseline.commit
         opencv_commit=$profile.opencv.commit
         comparison_axis=$profile.comparison_axis
@@ -73,11 +74,12 @@ if ($Action -eq 'Prepare') {
         $prep=Join-Path $work 'preparation'
         New-Item -ItemType Directory -Path $prep,(Join-Path $work 'tools'),(Join-Path $work 'download-cache'),
             (Join-Path $work 'results') -Force | Out-Null
-        foreach ($selection in @(
+        $selections=@(
             @{name='opencv'; entry=$profile.opencv},
-            @{name='ci-baseline'; entry=$profile.ci_baseline},
-            @{name='ci-dev'; entry=$profile.ci_dev}
-        )) {
+            @{name='ci-baseline'; entry=$profile.ci_baseline}
+        )
+        if (-not $independent) { $selections+=@(@{name='ci-dev';entry=$profile.ci_dev}) }
+        foreach ($selection in $selections) {
             $entry=$selection.entry
             $bundle=Join-Path $localPackage $entry.bundle.Replace('/','\')
             $destination=Join-Path $work $selection.name
@@ -152,9 +154,11 @@ if ($Action -eq 'Prepare') {
                 @($profile.configure_options) + @("-DCMAKE_GENERATOR_INSTANCE:PATH=$($tools.visual_studio)")
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $recipe -Encoding utf8
         $configurationReceipt=Join-Path $prep 'configuration.json'
+        $dev=if($independent){$profile.ci_baseline}else{$profile.ci_dev}
+        $devRoot=Join-Path $work $(if($independent){'ci-baseline'}else{'ci-dev'})
         & (Join-Path $scripts 'Configure-CiPilot.ps1') -OriginalStudyReceipt $recipe `
             -HeaderReceipt $headerReceipt -DevelopmentReceipt $developmentReceipt `
-            -DevRoot (Join-Path $work 'ci-dev') -DevCommit $profile.ci_dev.commit `
+            -DevRoot $devRoot -DevCommit $dev.commit `
             -BuildDirectory $profile.build_directory -ExpectedWorkload (Join-Path $localPackage 'expected-workload.json') `
             -RepositoryProfile (Join-Path $localPackage 'profile.json') `
             -OutputPath $configurationReceipt
@@ -175,9 +179,22 @@ if ($Action -eq 'Prepare') {
         $hostPath=Join-Path $prep 'host.json'
         & (Join-Path $localPackage 'scripts\Get-HostSnapshot.ps1') -OutputPath $hostPath
         $protocolPath=Join-Path $work 'results\protocol.json'
+        $freezeOptions=@{}
+        if ($independent) {
+            $contract=Join-Path $prep 'build-contract.json'
+            $capture=[OpenCvBoundedProcess]::Run($python,@(
+                '-B',(Join-Path $scripts 'build_contract.py'),'--ci-root',$devRoot,'--ci-commit',$dev.commit,
+                '--workdir',$work,'--builddir',$profile.build_directory,'--bash',$tools.bash,
+                '--capture-root',(Join-Path $prep 'capture'),'--output',$contract),
+                $work,(Join-Path $prep 'capture-controller.log'),60)
+            if ($capture.TimedOut -or $capture.ExitCode -ne 0) {
+                throw "Command capture failed; see $(Join-Path $prep 'capture-controller.log')"
+            }
+            $freezeOptions=@{IndependentCase=$true;BuildContract=$contract}
+        }
         & (Join-Path $scripts 'Invoke-CiPilot.ps1') -Action Freeze -ProtocolPath $protocolPath `
             -ConfigurationReceipt $configurationReceipt -ReferenceHost $hostPath `
-            -OutputRoot (Join-Path $work 'trials') -ToolsFile $toolsPath -SharedCompilerJobs $sharedCompilerJobs
+            -OutputRoot (Join-Path $work 'trials') -ToolsFile $toolsPath -SharedCompilerJobs $sharedCompilerJobs @freezeOptions
         $record.status='prepared_for_functional_pair'
         $record.configuration=$configurationReceipt
         $record.protocol=$protocolPath

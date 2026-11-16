@@ -28,7 +28,9 @@ try {
     foreach ($name in @('Run-Comparison.ps1','ComparisonSupport.psm1','comparison.json')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $destinationPath $name)
     }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'COMPARISON.md') -Destination (Join-Path $destinationPath 'README.md')
+    foreach ($name in @('README.md','COMPARISON.md')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $destinationPath $name)
+    }
     $payload=Join-Path $destinationPath 'payload'
     Copy-Item -LiteralPath $SeedPackage -Destination $payload -Recurse
     $null=Assert-HandoffPackage $payload
