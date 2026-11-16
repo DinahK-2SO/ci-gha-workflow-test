@@ -99,8 +99,10 @@ try {
     Write-Output "Comparison run: $root"
     $env:GIT_TERMINAL_PROMPT='0'
     $package=Join-Path $root 'package'
-    Copy-Item -LiteralPath $payload -Destination $package -Recurse
-    $null=Assert-HandoffPackage $package
+    Invoke-ComparisonStage '[Setup] Copy and verify run package' {
+        Copy-Item -LiteralPath $payload -Destination $package -Recurse
+        $null=Assert-HandoffPackage $package
+    } $summary
     Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $package 'scripts\msbuild\BoundedProcess.cs') -Raw)
     $entries=@(New-ComparisonSources $config $package $root)
     $results=Join-Path $root 'results'
@@ -111,11 +113,14 @@ try {
         $caseRoot=Join-Path $results ("{0:d2}-{1}" -f ($index+1),$label)
         New-Item -ItemType Directory -Path $caseRoot | Out-Null
         $casePackage=Join-Path $caseRoot 'package'
-        New-ComparisonCasePackage $package $entry $casePackage
+        $stage="[$label $($index+1)/$($entries.Count)]"
+        Invoke-ComparisonStage "$stage Prepare isolated package" {
+            New-ComparisonCasePackage $package $entry $casePackage
+        } $summary
         $study=Join-Path $root "s$($index+1)"
-        Write-Host "Preparing case $label with independent OpenCV and CI checkouts: $study"
         Invoke-ComparisonScript (Join-Path $casePackage 'Start-Study.ps1') @(
-            '-Action','Prepare','-WorkRoot',$study,'-ConfirmLocalExecution')
+            '-Action','Prepare','-WorkRoot',$study,'-ConfirmLocalExecution') `
+            "$stage Restore sources and configure build" (Join-Path $caseRoot 'prepare.log')
         $prepared=Get-Content -LiteralPath (Join-Path $study 'preparation.json') -Raw | ConvertFrom-Json
         $scripts=Join-Path $prepared.local_package 'scripts\msbuild'
         $record.cases[$index].protocol=$prepared.protocol
@@ -132,7 +137,8 @@ try {
         $record.status='prepared_only_no_native_builds'
     } else {
         Invoke-ComparisonScript (Join-Path $scripts 'Test-CiFunctionalPair.ps1') @(
-            '-CasesFile',$casesFile,'-OutputPath',(Join-Path $results 'functional-summary.json'))
+            '-CasesFile',$casesFile,'-OutputPath',(Join-Path $results 'functional-summary.json')) `
+            '[Results] Validate all cases' (Join-Path $results 'validation.log')
         $record.status='configured_comparison_passed'
     }
 } catch {

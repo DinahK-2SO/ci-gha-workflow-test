@@ -10,8 +10,8 @@
     },
     {
       "path": "msbuild\\BoundedProcess.cs",
-      "bytes": 8369,
-      "sha256": "A334AAB0434862A77AAD80229442662DEC89FEA5CD62B82ACA3F6E187034801C"
+      "bytes": 9080,
+      "sha256": "0A1C2822970368A3B322E5C68C99D264704B2602856D5811E3ADA039250B8292"
     },
     {
       "path": "msbuild\\build_contract.py",

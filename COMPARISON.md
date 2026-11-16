@@ -58,7 +58,16 @@ already work. Failures are explicit and retained in `bootstrap.json` with
 download/source logs; no alternate versions, transport fallback or automatic
 retry is used. Partial payloads are rejected, not silently rebuilt.
 
-Git operations announce their log paths and report a heartbeat every 30 seconds.
+The terminal shows named source stages and per-case progress such as
+`[A 1/3] Restore sources and configure build ...` followed by `OK` or `FAILED`.
+Successful low-level Git commands stay quiet. Git operations and case controllers
+that are still running after 60 seconds show their diagnostic log path, then
+repeat at most every two minutes. This means "still running", not proof of a
+hang. Failures immediately identify the failed stage and its log.
+Detailed case-controller output stays in `prepare.log`, `build.log` and
+`export.log` beside each case's export directory; aggregate checks use
+`results\validation.log`. Run and final-summary paths are still printed.
+Controller observation adds no outer deadline or changes to native build timing.
 The full-history OpenCV fetch and bundle creation each have a 30-minute deadline;
 other Git commands retain a five-minute deadline. Git exit codes and timeout
 results are saved beside each log in `.log.json`. Bootstrap prints its final

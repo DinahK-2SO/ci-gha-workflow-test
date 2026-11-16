@@ -102,6 +102,19 @@ public static class OpenCvBoundedProcess
         int timeoutSeconds, Action<double> progress)
     {
         if (timeoutSeconds < 1 || timeoutSeconds > 1800) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        return RunCore(executable, arguments, directory, log, timeoutSeconds, progress);
+    }
+
+    public static Result RunObserved(string executable, string[] arguments, string directory, string log,
+        Action<double> progress)
+    {
+        // Controllers retain their existing inner deadlines; observation adds no outer deadline.
+        return RunCore(executable, arguments, directory, log, null, progress);
+    }
+
+    private static Result RunCore(string executable, string[] arguments, string directory, string log,
+        int? timeoutSeconds, Action<double> progress)
+    {
         Quote(directory);
         string cmd = Environment.GetEnvironmentVariable("ComSpec");
         string inner = Quote(executable);
@@ -129,9 +142,11 @@ public static class OpenCvBoundedProcess
             uint wait;
             do
             {
-                uint remaining = (uint)Math.Max(0, timeoutSeconds * 1000L - clock.ElapsedMilliseconds);
+                uint remaining = timeoutSeconds.HasValue
+                    ? (uint)Math.Max(0, timeoutSeconds.Value * 1000L - clock.ElapsedMilliseconds)
+                    : uint.MaxValue;
                 wait = WaitForSingleObject(process.process, progress == null ? remaining : Math.Min(remaining, 30000u));
-                if (wait != 258 || clock.ElapsedMilliseconds >= timeoutSeconds * 1000L) break;
+                if (wait != 258 || (timeoutSeconds.HasValue && clock.ElapsedMilliseconds >= timeoutSeconds.Value * 1000L)) break;
                 progress?.Invoke(clock.Elapsed.TotalSeconds);
             } while (true);
             if (wait == 258)

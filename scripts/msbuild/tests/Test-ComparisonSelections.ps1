@@ -111,7 +111,14 @@ try {
     Add-Type -TypeDefinition (Get-Content (Join-Path $SourceRoot 'scripts\msbuild\BoundedProcess.cs') -Raw)
     $fetch=Join-Path $WorkRoot 'fetch'
     New-Item -ItemType Directory -Path $fetch | Out-Null
-    $entries=@(New-ComparisonSources $config $package $fetch -WithoutSeed)
+    $terminal=Join-Path $WorkRoot 'source-terminal.txt'
+    $entries=@(New-ComparisonSources $config $package $fetch -WithoutSeed 6> $terminal)
+    $text=Get-Content $terminal -Raw
+    if ($text -match 'Git operation started|Log:' -or
+        $text -notmatch '\[Sources\] second: fetch and verify OpenCV.*\.\.\. OK' -or
+        $text -notmatch 'Bundle and verify CI for first/second/third \.\.\. OK') {
+        throw 'Normal source preparation lacks semantic completion messages or exposes low-level log noise.'
+    }
     for ($index=0; $index -lt $cases.Count; $index++) {
         $destination=Join-Path $WorkRoot "case-$index"
         New-ComparisonCasePackage $package $entries[$index] $destination

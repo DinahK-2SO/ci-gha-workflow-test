@@ -1,5 +1,27 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+$script:comparisonStage='[Sources] Git'
+
+function Invoke-ComparisonStage([string]$Stage,[scriptblock]$Action,[string]$LogPath) {
+    $previous=$script:comparisonStage
+    $script:comparisonStage=$Stage
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    Write-Host "$Stage ..."
+    try {
+        $value=& $Action
+        Write-Host ("{0} ... OK ({1:n1}s)" -f $Stage,$clock.Elapsed.TotalSeconds)
+        if ($null -ne $value) { return $value }
+    } catch {
+        Write-Host "$Stage ... FAILED. Log: $LogPath"
+        throw
+    } finally { $script:comparisonStage=$previous }
+}
+
+function Write-ComparisonHeartbeat([string]$Stage,[string]$LogPath,[double]$Elapsed,$State) {
+    if ($Elapsed -lt $State.next) { return }
+    Write-Host ("{0}: still running ({1:n0}s). Log: {2}" -f $Stage,$Elapsed,$LogPath)
+    $State.next=$Elapsed+120
+}
 
 function Write-ComparisonJson($Value,[string]$Path) {
     ConvertTo-Json -InputObject $Value -Depth 20 | Set-Content -LiteralPath $Path -Encoding utf8
@@ -67,18 +89,35 @@ function Resolve-ComparisonWorkParent($Config,[string]$SourceRoot) {
     return Assert-LocalStudyPath $path $SourceRoot
 }
 
-function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments) {
-    & ([Environment]::ProcessPath) -NoLogo -NoProfile -NonInteractive -File $Path @Arguments
-    if ($LASTEXITCODE) { throw "Script failed ($LASTEXITCODE): $Path" }
+function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments,[string]$Stage,[string]$LogPath) {
+    if (-not $Stage -and -not $LogPath) {
+        & ([Environment]::ProcessPath) -NoLogo -NoProfile -NonInteractive -File $Path @Arguments
+        if ($LASTEXITCODE) { throw "Script failed ($LASTEXITCODE): $Path" }
+        return
+    }
+    if (-not $Stage -or -not $LogPath) { throw 'Observed scripts require both a stage name and a log path.' }
+    Invoke-ComparisonStage $Stage {
+        $state=@{next=60}
+        $progress=[Action[double]]{
+            param($Elapsed)
+            Write-ComparisonHeartbeat $Stage $LogPath $Elapsed $state
+        }
+        $result=[OpenCvBoundedProcess]::RunObserved([Environment]::ProcessPath,
+            (@('-NoLogo','-NoProfile','-NonInteractive','-File',$Path)+$Arguments),
+            (Get-Location).Path,$LogPath,$progress)
+        Write-ComparisonJson $result ($LogPath+'.json')
+        if ($result.ExitCode -ne 0) { throw "Script failed (exit $($result.ExitCode)): $Stage. Log: $LogPath" }
+    } $LogPath
 }
 
 function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arguments,[int]$TimeoutSeconds=300) {
     $script:gitSequence++
     $log=Join-Path $LogRoot ("git-{0:d3}.log" -f $script:gitSequence)
-    Write-Host "Git operation started (deadline: $TimeoutSeconds seconds). Log: $log"
+    $stage=$script:comparisonStage
+    $state=@{next=60}
     $progress=[Action[double]]{
         param($Elapsed)
-        Write-Host ("Git still running: {0:n0}/{1} seconds. Log: {2}" -f $Elapsed,$TimeoutSeconds,$log)
+        Write-ComparisonHeartbeat $stage $log $Elapsed $state
     }
     $result=[OpenCvBoundedProcess]::RunWithProgress((Get-Command git -CommandType Application | Select-Object -First 1).Source,
         $Arguments,$Directory,$log,$TimeoutSeconds,$progress)
@@ -96,15 +135,18 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
     foreach ($kind in @('opencv','ci')) {
         $prefix=if ($kind -eq 'ci') {'ci-gha'} else {'opencv'}
         $timeout=if ($kind -eq 'opencv') {1800} else {300}
+        $name=if ($kind -eq 'ci') {'CI'} else {'OpenCV'}
         $bare=Join-Path $RunRoot "$kind-cache.git"
-        $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$bare)
         $bundle=Join-Path $Package "sources\$kind.bundle"
-        if ($WithoutSeed) {
-            if (Test-Path -LiteralPath $bundle) { throw 'Seed-free bootstrap must not replace an existing source bundle.' }
-        } else {
-            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet',$bundle,
-                'refs/heads/*:refs/remotes/seed/*') $timeout
-        }
+        Invoke-ComparisonStage "[Sources] Prepare $name source cache" {
+            $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$bare)
+            if ($WithoutSeed) {
+                if (Test-Path -LiteralPath $bundle) { throw 'Seed-free bootstrap must not replace an existing source bundle.' }
+            } else {
+                $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--quiet',$bundle,
+                    'refs/heads/*:refs/remotes/seed/*') $timeout
+            }
+        } $logs
         $refs=@()
         $branches=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
         $fetched=[Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
@@ -114,42 +156,49 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
             $branchName=$selection."$prefix-branch"
             $commit=$selection."$prefix-commit"
             $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$repository.git"}else{"https://github.com/$repository.git"}
-            $branchKey="$repository|$branchName"
-            if (-not $branches.ContainsKey($branchKey)) {
-                $branch=Invoke-ComparisonGit $RunRoot $logs @('ls-remote','--exit-code',$url,"refs/heads/$branchName")
-                if ($branch -cnotmatch ('^([0-9a-f]{40})\s+'+[regex]::Escape("refs/heads/$branchName")+'$')) {
-                    throw 'Unexpected remote branch response.'
-                }
-                $branches[$branchKey]=$Matches[1]
-            }
-            $fetchKey="$repository|$commit"
-            if (-not $fetched.ContainsKey($fetchKey)) {
-                $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$commit) $timeout
-                $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$commit)
-                if ($type -cne 'commit') { throw 'The selected SHA does not identify a commit.' }
-                $fetched[$fetchKey]=$true
-            }
             $ref="refs/heads/comparison-$($index+1)"
-            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$ref,$commit)
+            $stage="[Sources] $($selection.label): fetch and verify $name $repository@$($commit.Substring(0,8))"
+            $entries[$index][$kind]=Invoke-ComparisonStage $stage {
+                $branchKey="$repository|$branchName"
+                if (-not $branches.ContainsKey($branchKey)) {
+                    $branch=Invoke-ComparisonGit $RunRoot $logs @('ls-remote','--exit-code',$url,"refs/heads/$branchName")
+                    if ($branch -cnotmatch ('^([0-9a-f]{40})\s+'+[regex]::Escape("refs/heads/$branchName")+'$')) {
+                        throw 'Unexpected remote branch response.'
+                    }
+                    $branches[$branchKey]=$Matches[1]
+                }
+                $fetchKey="$repository|$commit"
+                if (-not $fetched.ContainsKey($fetchKey)) {
+                    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$commit) $timeout
+                    $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$commit)
+                    if ($type -cne 'commit') { throw 'The selected SHA does not identify a commit.' }
+                    $fetched[$fetchKey]=$true
+                }
+                $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$ref,$commit)
+                [ordered]@{
+                    repository=$repository;branch_name=$branchName;commit=$commit
+                    bundle="sources/$kind.bundle";bundle_ref=$ref
+                    branch_head_at_check=$branches[$branchKey]
+                }
+            } $logs
             $refs+=$ref
-            $entries[$index][$kind]=[ordered]@{
-                repository=$repository;branch_name=$branchName;commit=$commit
-                bundle="sources/$kind.bundle";bundle_ref=$ref
-                branch_head_at_check=$branches[$branchKey]
-            }
         }
         $newBundle=Join-Path $RunRoot "selected-$kind.bundle"
-        $null=Invoke-ComparisonGit $RunRoot $logs (@("--git-dir=$bare",'bundle','create','--version=2',$newBundle)+$refs) $timeout
-        $empty=Join-Path $RunRoot "$kind-bundle-verify.git"
-        $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
-        $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle) $timeout
-        Copy-Item -LiteralPath $newBundle -Destination $bundle
+        Invoke-ComparisonStage "[Sources] Bundle and verify $name for $($Config.cases.label -join '/')" {
+            $null=Invoke-ComparisonGit $RunRoot $logs (@("--git-dir=$bare",'bundle','create','--version=2',$newBundle)+$refs) $timeout
+            $empty=Join-Path $RunRoot "$kind-bundle-verify.git"
+            $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
+            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle) $timeout
+            Copy-Item -LiteralPath $newBundle -Destination $bundle
+        } $logs
     }
     Write-ComparisonJson ([ordered]@{
         selected=$entries
         branch_is_provenance_not_a_floating_execution_target=$true
     }) (Join-Path $Package 'sources\provenance.json')
-    Set-ComparisonCaseProfile $Package $entries[0]
+    Invoke-ComparisonStage '[Sources] Verify selected source package' {
+        Set-ComparisonCaseProfile $Package $entries[0]
+    } $logs
     return $entries
 }
 
@@ -189,9 +238,13 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
         $case.status='running'
         Write-ComparisonJson $Record $SummaryPath
         $failure=$null
+        $ordinal=[Array]::IndexOf(@($Record.cases.label),$case.label)+1
+        $stage="[$($case.label) $ordinal/$($Record.cases.Count)]"
+        $caseRoot=Split-Path $case.export
         try {
             Invoke-ComparisonScript (Join-Path $Scripts 'Invoke-CiPilot.ps1') @(
-                '-Action','Run','-ProtocolPath',$case.protocol,'-Condition',$case.condition)
+                '-Action','Run','-ProtocolPath',$case.protocol,'-Condition',$case.condition) `
+                "$stage Build and check correctness" (Join-Path $caseRoot 'build.log')
         } catch { $failure=$_.Exception.Message }
         $protocol=Get-Content -LiteralPath $case.protocol -Raw | ConvertFrom-Json
         $executionPath=Join-Path $protocol.output_root "$($case.condition)\execution.json"
@@ -201,7 +254,8 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
             if ($execution.PSObject.Properties['build']) { $consumed+=$execution.build.OuterWallSeconds }
             try {
                 Invoke-ComparisonScript (Join-Path $Scripts 'Export-CiFunctionalResults.ps1') @(
-                    '-ProtocolPath',$case.protocol,'-Condition',$case.condition,'-Destination',$case.export)
+                    '-ProtocolPath',$case.protocol,'-Condition',$case.condition,'-Destination',$case.export) `
+                    "$stage Archive results" (Join-Path $caseRoot 'export.log')
             } catch {
                 $case.export_error=$_.Exception.Message
                 if (-not $failure) { $failure=$_.Exception.Message }
@@ -218,4 +272,4 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
 }
 
 Export-ModuleMember -Function Read-ComparisonConfig,Write-ComparisonJson,Invoke-ComparisonScript,
-    New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent
+    New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent,Invoke-ComparisonStage
