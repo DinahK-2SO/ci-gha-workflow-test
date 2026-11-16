@@ -86,6 +86,7 @@ if ($Action -eq 'Freeze') {
         order=$(if($LegacyOptIn){@('baseline','shared')}elseif($CandidateFirst){@('fixed','baseline')}else{@('baseline','fixed')})
         comparison_axis=$(if($LegacyOptIn){'historical_optin'}else{'baseline_vs_fixed_commit'})
         build_contract=$BuildContract
+        test_build_policy=@{msbuild_node_reuse=$false}
         resource_sampling=[bool]$SampleResources
         resource_sample_interval_seconds=5
         project_jobs=8
@@ -130,6 +131,12 @@ if ($Action -eq 'Freeze') {
 
 if (-not $Condition) { throw 'Run requires a selected pilot condition.' }
 $protocol = Get-Content -LiteralPath $ProtocolPath -Raw | ConvertFrom-Json
+if (-not $protocol.PSObject.Properties['test_build_policy'] -or
+    -not $protocol.test_build_policy.PSObject.Properties['msbuild_node_reuse'] -or
+    $protocol.test_build_policy.msbuild_node_reuse -isnot [bool] -or
+    $protocol.test_build_policy.msbuild_node_reuse) {
+    throw 'This harness requires a newly frozen local /nr:false test policy; prior results are not retargeted.'
+}
 $order = @($protocol.order) -join '|'
 if ($order -cnotin @('baseline|fixed','fixed|baseline','baseline|shared') -or $Condition -notin $protocol.order) {
     throw 'The selected condition is not part of a supported frozen comparison.'
@@ -165,6 +172,7 @@ $result = [ordered]@{
     architecture=$platform.architecture
     comparison_axis=$(if($isCommitComparison){'baseline_vs_fixed_commit'}else{'historical_optin'})
     protocol_sha256=(Get-FileHash -LiteralPath $ProtocolPath).Hash
+    test_build_policy=$protocol.test_build_policy
     native_numpy_runtime_verified=$false
     full_ci_qualified=$false
 }
@@ -222,8 +230,8 @@ try {
     foreach ($property in $configuration.process_environment.PSObject.Properties) {
         Set-Item -LiteralPath "Env:$($property.Name)" -Value $property.Value
     }
-    $result.clean = [OpenCvBoundedProcess]::Run($protocol.cmake,@(
-        '--build',$configuration.build_directory,'--target','clean','--config','Release'),
+    $result.clean_arguments=@('--build',$configuration.build_directory,'--target','clean','--config','Release','--','/nr:false')
+    $result.clean = [OpenCvBoundedProcess]::Run($protocol.cmake,$result.clean_arguments,
         $configuration.root,(Join-Path $output 'clean.log'),300)
     if ($result.clean.TimedOut -or $result.clean.ExitCode -ne 0) {
         throw "Pre-build clean failed (exit $($result.clean.ExitCode), timed out: $($result.clean.TimedOut)). Log: $(Join-Path $output 'clean.log')"

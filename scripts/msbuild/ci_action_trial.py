@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 
+from cmake_probe import TEST_BUILD_POLICY, test_build_arguments
+
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -170,6 +172,7 @@ def main():
         "expected_shared_compiler_jobs": args.compiler_jobs,
         "scope": "Exact selected build step only; no full GitHub Actions or HOBL lifecycle claim.",
         "runner_sha256": sha256(__file__),
+        "test_build_policy": TEST_BUILD_POLICY,
     }
     with receipt.open("x", encoding="utf-8") as output:
         json.dump(record, output, indent=2)
@@ -251,7 +254,7 @@ def main():
         record["cmake_probe_sha256"] = sha256(probe)
         record["cmake_sha256"] = sha256(args.cmake)
         record["bash_sha256"] = sha256(args.bash)
-        record["measurement_adapter"] = "Identical PATH shim times the real native CMake process for both commits; overhead outside that timer remains in outer wall time."
+        record["measurement_adapter"] = "Identical local PATH shim validates original action arguments, applies /nr:false to every measured build, and records the effective native command without modifying the action."
         result = subprocess.run(
             [str(args.bash), "--noprofile", "--norc", "-eo", "pipefail", script_file.as_posix()],
             cwd=args.workdir, env=env, check=False,
@@ -259,7 +262,10 @@ def main():
         record["step_exit_code"] = result.returncode
         measured = json.loads((args.output / "cmake-invocation.json").read_text(encoding="utf-8"))
         record["native_build"] = measured
-        if result.returncode or measured["status"] != "success" or measured["arguments"] != expected:
+        if (result.returncode or measured["status"] != "success"
+                or measured["arguments"] != expected
+                or measured.get("test_build_policy") != TEST_BUILD_POLICY
+                or measured.get("effective_arguments") != test_build_arguments(expected)):
             raise ValueError("Build failed or the actual native command differs from the frozen condition")
         assert_checkout(args.ci_root, args.ci_commit)
         assert_checkout(args.source_root, args.source_commit)

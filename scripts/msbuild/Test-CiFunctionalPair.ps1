@@ -47,6 +47,20 @@ foreach ($case in $cases) {
     $directory = $case.export
     $execution = Get-Content -LiteralPath (Join-Path $directory 'execution.json') -Raw | ConvertFrom-Json
     $trial = Get-Content -LiteralPath (Join-Path $directory 'trial.json') -Raw | ConvertFrom-Json
+    foreach ($record in @($protocol,$execution,$trial,$trial.native_build)) {
+        if (-not $record.PSObject.Properties['test_build_policy'] -or
+            -not $record.test_build_policy.PSObject.Properties['msbuild_node_reuse'] -or
+            $record.test_build_policy.msbuild_node_reuse -isnot [bool] -or
+            $record.test_build_policy.msbuild_node_reuse) {
+            throw 'Missing or inconsistent local /nr:false policy; do not mix these results with earlier runs.'
+        }
+    }
+    $expectedClean=@('--build',$configuration.build_directory,'--target','clean','--config','Release','--','/nr:false')
+    if (-not $execution.PSObject.Properties['clean_arguments'] -or
+        ($execution.clean_arguments -join '|') -cne ($expectedClean -join '|') -or
+        $execution.clean.ExitCode -ne 0 -or $execution.clean.TimedOut) {
+        throw 'Pre-build clean did not pass under the frozen /nr:false policy.'
+    }
     if ($commitComparison -and (
             $trial.comparison_axis -cne 'baseline_vs_fixed_commit' -or
             $trial.condition -cne $condition -or
@@ -101,6 +115,20 @@ foreach ($case in $cases) {
         $trial.cache_sha256 -cne $configuration.cache_sha256.ToLowerInvariant()) {
         throw 'The full native build command, outcome or cache identity differs.'
     }
+    $separator=[Array]::IndexOf($expectedArgs,'--')
+    $effectiveArgs=if ($separator -lt 0) { @($expectedArgs)+@('--') } else { @($expectedArgs[0..$separator]) }
+    if ($separator -ge 0) {
+        foreach ($argument in $expectedArgs | Select-Object -Skip ($separator+1)) {
+            if ($argument -match '^[/\-]+(?:nr|nodereuse)(?::(.*))?$') {
+                if ($Matches[1] -ine 'false') { throw 'Captured action conflicts with the local node-reuse policy.' }
+            } else { $effectiveArgs+=@($argument) }
+        }
+    }
+    $effectiveArgs+=@('/nr:false')
+    if (-not $trial.native_build.PSObject.Properties['effective_arguments'] -or
+        ($trial.native_build.effective_arguments -join '|') -cne ($effectiveArgs -join '|')) {
+        throw 'The effective native command did not apply exactly the frozen local /nr:false policy.'
+    }
     $tests = @($execution.smoke | ForEach-Object {$_.tests} | Sort-Object)
     if (($tests -join '|') -cne ($expectedTests -join '|') -or
         $execution.binding_dll_load.ExitCode -ne 0 -or $execution.binding_dll_load.TimedOut -or
@@ -129,6 +157,7 @@ foreach ($case in $cases) {
         protocol_sha256=$protocolHash
         condition=$condition
         status=$execution.status
+        test_build_policy=$protocol.test_build_policy
         repositories=$trial.repositories
         selected_cpp_checks_passed=$tests.Count
         architecture=$platform.architecture
@@ -156,6 +185,7 @@ if ($consumed -gt $budget) { throw 'The build-budget boundary was exceeded.' }
     cache_sha256=$configuration.cache_sha256
     architecture=$referenceArchitecture
     same_common_helpers_tools_cache_and_output_inventory=$true
+    test_build_policy=@{msbuild_node_reuse=$false}
     conditions=$conditions
     consumed_build_budget_seconds=$consumed
     budget_within_limit=$true

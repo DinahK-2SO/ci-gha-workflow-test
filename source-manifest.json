@@ -20,13 +20,13 @@
     },
     {
       "path": "msbuild\\ci_action_trial.py",
-      "bytes": 15312,
-      "sha256": "66B5E1AFFA78208BEA3960778C9A95293BDA0DA80A42D900A8E57E0F2350158B"
+      "bytes": 15653,
+      "sha256": "FD8C6411F52D8C1CD4297CDF9A1224176E39CED8546B30A4F0CBF959CB1E885B"
     },
     {
       "path": "msbuild\\cmake_probe.py",
-      "bytes": 1602,
-      "sha256": "FF819C367F5A4A19754F6CF73FE56DD093251045B4DE8B629A474E9886CEEC0E"
+      "bytes": 2624,
+      "sha256": "36DE0A56682FC7706124641E7A9F5AA2DD3BA6B86B9157076585559A938122D8"
     },
     {
       "path": "msbuild\\Configure-CiPilot.ps1",
@@ -40,8 +40,8 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 20799,
-      "sha256": "BCEE2EE6F45CD90CAE174CCF2816468F4F11694683CDD1DD265621226B566D45"
+      "bytes": 21348,
+      "sha256": "D8E3A405960231945805C8E0A1009D07555A7707172D7FD3AF05C8E13F2B9C2A"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",
@@ -65,8 +65,8 @@
     },
     {
       "path": "msbuild\\Test-CiFunctionalPair.ps1",
-      "bytes": 9389,
-      "sha256": "6DAD8E7DC2D67D9EA986C55A0D3FC3AFC962181998BEDD37014D52A81EB0EC1A"
+      "bytes": 11275,
+      "sha256": "F75FF75765A3524B2EEEB5A07FEB33CA93C474CA3C73CC8E2338BF0962DEFB3A"
     },
     {
       "path": "msbuild\\tests\\bounded_fixture.py",

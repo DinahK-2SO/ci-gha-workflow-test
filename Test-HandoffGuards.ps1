@@ -146,6 +146,8 @@ if (-not $rejected) { throw 'An overlong generated MSBuild intermediate path was
 $checks += [ordered]@{test='msbuild-intermediate-path-limit-before-clean-or-build';passed=$true}
 
 if ($PipPython) {
+    & $PipPython -B -m unittest discover -s (Join-Path $PSScriptRoot 'scripts\msbuild\tests') -p 'test_cmake_probe.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Local CMake measurement-adapter tests failed.' }
     $pipChecks=@(& (Get-Module BootstrapSupport) {
         param($Root,$Python)
         $saved=@{}
@@ -358,7 +360,8 @@ Write-ComparisonJson @{
     -ReferenceHost $hostPath -ToolsFile $toolsPath -OutputRoot (Join-Path $root 'trials')
 $frozen=Get-Content -LiteralPath $protocolPath -Raw | ConvertFrom-Json
 if ($frozen.cmake -cne $executable -or $frozen.measurement_python -cne $python -or
-    @($frozen.frozen_files | Where-Object path -CEQ $toolsPath).Count -ne 1) {
+    @($frozen.frozen_files | Where-Object path -CEQ $toolsPath).Count -ne 1 -or
+    $frozen.test_build_policy.msbuild_node_reuse -cne $false) {
     throw 'Freeze did not preserve the explicitly selected tools.'
 }
 $checks += [ordered]@{test='explicit-tools-required-and-frozen-without-execution';passed=$true}

@@ -183,6 +183,22 @@ execution always uses the specified SHA, never a floating branch tip.
 
 ## What stays fixed
 
+The local test harness explicitly passes `/nr:false` to every pre-build clean
+and measured MSBuild build, uniformly for all selected commits. This is a
+test-only policy: public action inputs, action files and checked-out commits
+are not changed. The existing CMake measurement adapter first checks the
+original captured arguments, then adds the native switch after `--`. It
+preserves other options, normalizes an existing false node-reuse switch, and
+rejects an explicit conflicting node-reuse setting instead of silently
+overriding it.
+
+Frozen protocols, execution/trial records and the functional summary declare
+`test_build_policy.msbuild_node_reuse: false`. `cmake-invocation.json` keeps
+`arguments` as the original action arguments and records `effective_arguments`
+as those actually passed to native CMake. Result validation checks both and
+the clean command. Earlier runs lacking this policy remain historical evidence;
+they are not relabeled or pooled with the `/nr:false` runs.
+
 The payload contains the previously qualified OpenCV
 `c261e6e4b4e4bf3c1bf4e7da23193943400579ca` workload, portable CMake, native
 Python development archive, NumPy compile headers, YAML, scripts and licenses.
