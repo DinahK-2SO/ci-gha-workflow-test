@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "encoding": "UTF-8 without BOM; LF line endings",
-  "generator": "src\\msbuild\\Sync-ComparisonSources.ps1",
+  "generator": "Local scripts inventory refreshed with PowerShell Get-FileHash",
   "files": [
     {
       "path": "Get-HostSnapshot.ps1",
-      "bytes": 4160,
-      "sha256": "D2C2EF20501A71F04E50DA09A6D4C1C8DBCBED7CF0C24043032E8FD9191B797A"
+      "bytes": 4124,
+      "sha256": "B3EF50EF7ECE0D996DCF4FFFA5102BE3DC3EC4D0231B51B5264738D4D2811B10"
     },
     {
       "path": "msbuild\\BoundedProcess.cs",
@@ -30,8 +30,8 @@
     },
     {
       "path": "msbuild\\Configure-CiPilot.ps1",
-      "bytes": 9029,
-      "sha256": "A4C9A95436B4C64298BD448AD11787B744467EF2E533B09EB3A986BCB9C1D507"
+      "bytes": 8792,
+      "sha256": "41BBDD6E88F20CA7793A822BBDCF3EF67A9F372E48305DF80C2FC9DC60F03329"
     },
     {
       "path": "msbuild\\Export-CiFunctionalResults.ps1",
@@ -40,8 +40,8 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 21363,
-      "sha256": "BC55E3F7797569A7F859E088C61E508CF693CDC70523FEE692AFF7DB442AF872"
+      "bytes": 20544,
+      "sha256": "23B31566066A36B7AB8B830833F04D6CECD3C20BE7FCD90EA55F45492CBD7500"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",
@@ -55,8 +55,8 @@
     },
     {
       "path": "msbuild\\Prepare-PythonDevelopment.ps1",
-      "bytes": 4677,
-      "sha256": "C50AC6521F2E0089CA34446011C12BDD8412791C87A6363CAB5C87D01607A1BD"
+      "bytes": 4479,
+      "sha256": "912A6CCDB8FC4F49E2E90E9658EFCF640165612BAEDC0B3A944D2A08B3E0BF02"
     },
     {
       "path": "msbuild\\Test-BoundedProcess.ps1",

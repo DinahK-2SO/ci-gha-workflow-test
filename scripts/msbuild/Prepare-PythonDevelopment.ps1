@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string]$Package = 'C:\opencv-onboard\msbuild5x-20261110\tools\pythonarm64.3.13.14.nupkg',
-    [string]$Destination = 'C:\opencv-onboard\msbuild5x-20261110\tools\python-dev-3.13.14-arm64',
-    [string]$Dumpbin = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\Hostarm64\arm64\dumpbin.exe',
+    [Parameter(Mandatory)][string]$Package,
+    [Parameter(Mandatory)][string]$Destination,
+    [Parameter(Mandatory)][string]$Dumpbin,
     [ValidateSet('ARM64','x64')][string]$Architecture = 'ARM64',
     [Parameter(Mandatory)][string]$OutputPath
 )

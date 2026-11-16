@@ -17,7 +17,8 @@ if (-not (Test-Path -LiteralPath $payload)) {
     }
     Assert-ComparisonSourceTree $PSScriptRoot
     $config=Read-ComparisonConfig $ConfigPath
-    $parent=Assert-LocalStudyPath $config.work_parent $PSScriptRoot
+    $parent=Resolve-ComparisonWorkParent $config $PSScriptRoot
+    $null=Resolve-ComparisonOpenCvRepository $config
     $tools=Find-HandoffToolchain
     if ($Check) {
         $cacheRoot=Resolve-ComparisonCacheRoot $config $PSScriptRoot
@@ -46,9 +47,13 @@ foreach ($file in $launchers) {
 }
 Import-Module (Join-Path $PSScriptRoot 'ComparisonSupport.psm1') -Force
 $config=Read-ComparisonConfig $ConfigPath
-$parent=Assert-LocalStudyPath $config.work_parent $PSScriptRoot
+$parent=Resolve-ComparisonWorkParent $config $PSScriptRoot
 $profile=Get-Content -LiteralPath (Join-Path $payload 'profile.json') -Raw | ConvertFrom-Json
 Assert-HandoffProfile $profile $manifest
+if ($config.PSObject.Properties['opencv_repository'] -and
+    $config.opencv_repository -cne $profile.opencv.repository) {
+    throw 'The OpenCV repository differs from the frozen payload. Use the source folder to prepare a new payload; it is not retargeted in place.'
+}
 $tools=Find-HandoffToolchain -Architecture $profile.architecture
 if ($Check) {
     Write-Output "Validated config/payload/toolchain. $($config.commits.Count) selected commits; no work started."

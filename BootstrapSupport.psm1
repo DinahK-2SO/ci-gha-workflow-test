@@ -154,11 +154,13 @@ function Expand-ComparisonDependency([string]$Archive,[string]$Destination) {
 function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string]$WorkParent) {
     Assert-ComparisonSourceTree $SourceRoot
     $config=Read-ComparisonConfig $ConfigPath
+    $opencvRepository=Resolve-ComparisonOpenCvRepository $config
     $parent=Assert-LocalStudyPath $WorkParent $SourceRoot
     $null=Resolve-ComparisonCacheRoot $config $SourceRoot
     $tools=Find-HandoffToolchain
     $platform=Get-NativeBuildPlatform $tools.architecture
     $profile=Get-Content -LiteralPath (Join-Path $SourceRoot 'profile.json') -Raw | ConvertFrom-Json
+    $profile.opencv.repository=$opencvRepository
     $profile.architecture=$platform.architecture
     $profile.profile_id="opencv5x-windows-$($platform.architecture.ToLowerInvariant())-functional"
     if ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($parent)).AvailableFreeSpace -lt $profile.minimum_free_disk_gib*1GB) {

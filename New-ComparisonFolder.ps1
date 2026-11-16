@@ -8,6 +8,8 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'HandoffSupport.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'BootstrapSupport.psm1') -Force
+Assert-ComparisonSourceTree $PSScriptRoot
 $seed=Assert-HandoffPackage $SeedPackage
 $destinationPath=Assert-LocalStudyPath $Destination $PSScriptRoot
 $null=Assert-LocalStudyPath $destinationPath $SeedPackage
@@ -33,11 +35,14 @@ try {
     foreach ($name in @('Start-Study.ps1','HandoffSupport.psm1')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $payload $name)
     }
-    foreach ($name in @('Configure-CiPilot.ps1','Invoke-CiPilot.ps1','Test-CiFunctionalPair.ps1',
-            'ci_action_trial.py','prepare_ci_action.py','cmake_probe.py','build_contract.py')) {
-        Copy-Item -LiteralPath (Join-Path (Split-Path $PSScriptRoot) $name) `
-            -Destination (Join-Path $payload "scripts\msbuild\$name")
+    $sources=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'source-manifest.json') -Raw | ConvertFrom-Json
+    foreach ($file in $sources.files) {
+        $relative="scripts\$($file.path)"
+        $target=Join-Path $payload $relative
+        New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $relative) -Destination $target
     }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'source-manifest.json') -Destination $payload
     @('Run-Comparison.ps1','ComparisonSupport.psm1') | ForEach-Object {
         [ordered]@{name=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $destinationPath $_)).Hash}
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'comparison-launchers.json') -Encoding utf8

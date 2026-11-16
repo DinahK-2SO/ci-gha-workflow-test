@@ -6,7 +6,8 @@ Use this repository root on Windows x64 or ARM64, or copy this
 are needed. Keep your edited `comparison.json` when updating the source folder.
 An already assembled comparison folder also works.
 
-1. Edit `comparison.json`: keep the CI `repository` and `branch_name` configured
+1. Edit `comparison.json`: keep the CI `repository`, `branch_name` and
+   `opencv_repository` configured
    once, then change the ordered `commits` list as needed. Use full lowercase
    40-character SHAs and unique labels. Two to eight commits are supported.
 2. Run from PowerShell 7:
@@ -19,6 +20,18 @@ Invoking the script authorizes the listed local builds. No second confirmation
 or manually chosen package/protocol/result path is required. Each invocation
 creates a fresh timestamp/UUID run under `work_parent` and prints its location.
 Do not invoke it again merely to replace an unfavorable or failed result.
+Leave `work_parent` as `null` to use
+`$env:LOCALAPPDATA\opencv-build-test\runs`, or select an absolute fixed local
+directory. A missing `LOCALAPPDATA` requires an explicit path; there is no
+fallback to the author's drive layout. Path checks are read-only.
+
+Repository names in the supplied config identify the original investigation
+targets, not mandatory GitHub accounts. Change them to repositories you can
+access. `opencv_repository` must contain the workload's pinned OpenCV commit;
+changing the repository does not change that commit or relax its guards.
+Source startup requires this field explicitly, including in older source-mode
+configs. Existing assembled payloads retain their frozen OpenCV identity and
+reject a conflicting override.
 
 From a clean handoff source folder, the same command automatically creates an isolated
 `bootstrap-<timestamp>-<id>` directory under `work_parent`, obtains the
@@ -123,8 +136,10 @@ matching-architecture C++ tools/SDK must already be installed. No system install
 bootstrap downloads/extracts private portable inputs only.
 There is no dependency on the author's checkout or old study directories.
 Git access to the configured repository is needed for source verification and
-retrieval. Bootstrap also retrieves the pinned OpenCV repository from
-`profile.json`. `source_transport` explicitly selects `https` or `ssh`; no automatic
+retrieval. Bootstrap retrieves the pinned OpenCV commit from
+`opencv_repository` in `comparison.json`. Source `profile.json` repository
+slots are unresolved template values, filled from that config before the
+payload is frozen. `source_transport` selects `https` (default) or `ssh`; no automatic
 authentication fallback, credential setup or global Git configuration occurs.
 The original immutable offline packages remain unchanged.
 
@@ -188,10 +203,10 @@ Ordinary users do not need this command: source-folder startup handles
 provisioning. The following legacy assembly path is useful when a verified
 local seed already exists and its dependencies should be copied instead.
 
-From the research checkout, use a verified existing self-contained package:
+From this repository root, use a verified existing self-contained package:
 
 ```powershell
-.\src\msbuild\handoff\New-ComparisonFolder.ps1 `
+.\New-ComparisonFolder.ps1 `
   -SeedPackage 'C:\path\to\verified-package' `
   -Destination 'C:\path\to\new-comparison-folder' `
   -ReceiptPath 'C:\path\to\new-assembly-receipt.json'
@@ -203,50 +218,45 @@ new folder to another qualified local machine. Edit only `comparison.json`;
 payload and launcher hashes are checked on each invocation. Keep private raw
 logs and binaries local; review evidence before publishing it.
 
-## Reproducing clean-checkout qualification
+The research-only assembler requiring the author's dated preparation receipts
+and external directory layout was removed. It is not part of this standalone
+interface.
 
-From the repository root, after committing the source changes:
+## Local guard checks
 
-```powershell
-.\src\msbuild\tests\Test-CleanComparisonCheckout.ps1 `
-  -WorkRoot 'C:\opencv-onboard\fresh-comparison-check'
-```
-
-This exports only committed harness sources, uses an empty work parent and
-an explicit empty cache, and downloads dependencies from their pinned origins.
-It checks read-only startup,
-prepares the real configured commits, verifies the assembled folder and frozen
-contracts, and exercises the existing intentional pre-native rejection fixture.
-It never starts a full OpenCV benchmark. Failures and receipts remain under
-the fresh root. The source export is a local test fixture, not a distributed
-binary package.
-
-For a network-free check of the committed handoff folder in isolation:
+The included `Test-HandoffGuards.ps1` checks package/path/identity guards,
+portable configuration defaults and seed assembly without network access or
+native builds. Give it fresh work and receipt paths outside this repository:
 
 ```powershell
-.\src\msbuild\tests\Test-CleanComparisonCheckout.ps1 `
-  -WorkRoot 'C:\opencv-onboard\fresh-handoff-folder-check' -CheckOnly
+.\Test-HandoffGuards.ps1 `
+  -WorkRoot (Join-Path $env:LOCALAPPDATA 'opencv-build-test\guard-work-01') `
+  -OutputPath (Join-Path $env:LOCALAPPDATA 'opencv-build-test\guard-receipt-01.json')
 ```
 
-The export contains only the handoff folder, not parent helper files. This
-mode verifies read-only startup and source integrity, not real dependency
-downloads or native builds. The synthetic bootstrap regression also uses
-only that folder and exercises both cold and warm caches.
+Preserve previous attempts instead of overwriting them. This is not a full
+OpenCV comparison or native x64 hardware qualification.
 
 ## Updating bundled runtime sources (maintainers only)
 
-The `scripts` subdirectory is a generated source snapshot, not a second
-implementation to edit independently. Canonical scripts remain under
-`src\msbuild` and `src\Get-HostSnapshot.ps1`. After changing those sources:
+This standalone repository owns its bundled `scripts` sources. No external
+canonical source directory is required. After reviewing runtime edits, refresh
+the existing declared inventory's hashes (do not use this to approve unexpected
+or unreviewed content):
 
 ```powershell
-.\src\msbuild\Sync-ComparisonSources.ps1
-.\src\msbuild\Sync-ComparisonSources.ps1 -Check
+$manifest = Get-Content .\source-manifest.json -Raw | ConvertFrom-Json
+foreach ($file in $manifest.files) {
+    $path = Join-Path .\scripts $file.path
+    $file.bytes = (Get-Item -LiteralPath $path).Length
+    $file.sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+}
+$manifest | ConvertTo-Json -Depth 5 |
+    Set-Content .\source-manifest.json -Encoding utf8NoBOM
+.\Run-Comparison.ps1 -Check
 ```
 
-Commit the regenerated scripts and `source-manifest.json` together.
-Snapshots use UTF-8 without BOM and LF line endings; their bytes are preserved
-across Git checkouts. Startup verifies the complete required source inventory,
-lengths and hashes before preparing anything. The bootstrap regression runs
-the maintainer drift check before testing folder-only relocation.
-Ordinary users never need to run the sync command or collect parent helpers.
+Keep reviewed scripts and their manifest together. Runtime sources use UTF-8
+without BOM and LF line endings; Git preserves their bytes. Startup verifies
+the complete required inventory, lengths and hashes before preparation.
+Ordinary users do not need to update the manifest or collect parent helpers.

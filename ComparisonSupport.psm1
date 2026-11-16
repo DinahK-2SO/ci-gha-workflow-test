@@ -8,7 +8,7 @@ function Write-ComparisonJson($Value,[string]$Path) {
 function Read-ComparisonConfig([string]$Path) {
     $config=Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $keys=@('schema_version','repository','branch_name','source_transport','work_parent','commits')
-    if (@($config.PSObject.Properties.Name | Where-Object {$_ -notin ($keys+@('cache_root'))}).Count -or
+    if (@($config.PSObject.Properties.Name | Where-Object {$_ -notin ($keys+@('cache_root','opencv_repository'))}).Count -or
         @($keys | Where-Object {$_ -notin $config.PSObject.Properties.Name}).Count) {
         throw 'Comparison config has missing or unknown fields.'
     }
@@ -17,6 +17,14 @@ function Read-ComparisonConfig([string]$Path) {
         $config.branch_name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
         $config.source_transport -cnotin @('https','ssh')) {
         throw 'Invalid schema, repository, branch or source transport.'
+    }
+    if ($config.PSObject.Properties['opencv_repository'] -and
+        ($config.opencv_repository -isnot [string] -or $config.opencv_repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')) {
+        throw 'opencv_repository must be an owner/name repository containing the pinned OpenCV commit, not a URL or credential.'
+    }
+    if ($null -ne $config.work_parent -and
+        ($config.work_parent -isnot [string] -or $config.work_parent -notmatch '^[A-Za-z]:\\')) {
+        throw 'work_parent must be null (the LOCALAPPDATA default) or a fully qualified local drive path.'
     }
     if ($config.PSObject.Properties['cache_root'] -and $null -ne $config.cache_root -and
         ($config.cache_root -isnot [string] -or $config.cache_root -notmatch '^[A-Za-z]:\\')) {
@@ -39,6 +47,27 @@ function Read-ComparisonConfig([string]$Path) {
         $ids[$entry.commit]=$true
     }
     return $config
+}
+
+function Resolve-ComparisonWorkParent($Config,[string]$SourceRoot) {
+    $path=if ($null -ne $Config.work_parent) {
+        $Config.work_parent
+    } else {
+        if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            throw 'LOCALAPPDATA is unavailable; set work_parent to an explicit local directory.'
+        }
+        Join-Path $env:LOCALAPPDATA 'opencv-build-test\runs'
+    }
+    return Assert-LocalStudyPath $path $SourceRoot
+}
+
+function Resolve-ComparisonOpenCvRepository($Config) {
+    if (-not $Config.PSObject.Properties['opencv_repository'] -or
+        $Config.opencv_repository -isnot [string] -or
+        $Config.opencv_repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+        throw 'Source bootstrap requires opencv_repository in comparison.json; no account-specific repository fallback is used.'
+    }
+    return $Config.opencv_repository
 }
 
 function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments) {
@@ -171,4 +200,5 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
 }
 
 Export-ModuleMember -Function Read-ComparisonConfig,Write-ComparisonJson,Invoke-ComparisonScript,
-    New-ComparisonSources,New-ComparisonOpenCvSource,Invoke-ComparisonCases
+    New-ComparisonSources,New-ComparisonOpenCvSource,Invoke-ComparisonCases,
+    Resolve-ComparisonWorkParent,Resolve-ComparisonOpenCvRepository

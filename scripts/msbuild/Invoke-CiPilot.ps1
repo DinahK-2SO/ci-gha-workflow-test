@@ -29,41 +29,28 @@ if ($Action -eq 'Freeze') {
     }
     if ($LegacyOptIn -and $SharedCompilerJobs -ne 8) { throw 'Historical opt-in replay requires eight compiler slots.' }
     if ($SampleResources) { $helperNames += 'Watch-BuildResources.ps1' }
-    if (-not $ConfigurationReceipt -or -not $ReferenceHost -or -not $OutputRoot) {
-        throw 'Freeze requires configuration, reference-host and new output-root paths.'
+    if (-not $ConfigurationReceipt -or -not $ReferenceHost -or -not $OutputRoot -or -not $ToolsFile) {
+        throw 'Freeze requires configuration, reference-host, explicit tool-selection and new output-root paths.'
     }
     if ((Test-Path -LiteralPath $ProtocolPath) -or (Test-Path -LiteralPath $OutputRoot)) {
         throw 'Pilot protocol/output paths already exist; do not overwrite or automatically repeat.'
     }
     $configuration = Get-Content -LiteralPath $ConfigurationReceipt -Raw | ConvertFrom-Json
     $platform=Get-RecordedBuildPlatform $configuration
-    if ($platform.architecture -cne 'ARM64' -and -not $ToolsFile) {
-        throw 'A non-legacy architecture requires an explicit frozen tool selection.'
-    }
     if ($configuration.status -ne 'configured_full_base_workload_pending_pilots') {
         throw 'The full base-build configuration has not passed its preparation guards.'
     }
-    $tools = @(
-        'C:\opencv-onboard\harness\.tools\cmake-4.1.1-windows-arm64\bin\cmake.exe',
-        (Join-Path $configuration.root 'tools\python-3.13.14-arm64\python.exe'),
-        'C:\Program Files\Git\bin\bash.exe',
-        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\arm64\MSBuild.exe',
-        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\Hostarm64\arm64\cl.exe',
-        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\Hostarm64\arm64\link.exe'
-    )
+    $selection = Get-Content -LiteralPath $ToolsFile -Raw | ConvertFrom-Json
+    if ($selection.PSObject.Properties['architecture'] -and $selection.architecture -cne $platform.architecture) {
+        throw 'Tool selection and configured architecture differ.'
+    }
+    $tools = @($selection.cmake,$selection.measurement_python,$selection.bash,
+        $selection.msbuild,$selection.compiler,$selection.linker)
+    $preparerPython = $selection.preparer_python
     $processorCountPowerShell = $null
-    if ($ToolsFile) {
-        $selection = Get-Content -LiteralPath $ToolsFile -Raw | ConvertFrom-Json
-        if ($selection.PSObject.Properties['architecture'] -and $selection.architecture -cne $platform.architecture) {
-            throw 'Tool selection and configured architecture differ.'
-        }
-        $tools = @($selection.cmake,$selection.measurement_python,$selection.bash,
-            $selection.msbuild,$selection.compiler,$selection.linker)
-        $preparerPython = $selection.preparer_python
-        if ($selection.PSObject.Properties['processor_count_powershell']) {
-            $processorCountPowerShell = $selection.processor_count_powershell
-        }
-    } else { $preparerPython = (Get-Command python).Source }
+    if ($selection.PSObject.Properties['processor_count_powershell']) {
+        $processorCountPowerShell = $selection.processor_count_powershell
+    }
     $files = @(
         [ordered]@{path=$ConfigurationReceipt; sha256=(Get-FileHash -LiteralPath $ConfigurationReceipt).Hash},
         [ordered]@{path=$ReferenceHost; sha256=(Get-FileHash -LiteralPath $ReferenceHost).Hash}

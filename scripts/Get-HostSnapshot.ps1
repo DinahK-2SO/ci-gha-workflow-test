@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string]$OutputPath = (Join-Path $PSScriptRoot 'results\2026-1104\host.json')
+    [Parameter(Mandatory)][string]$OutputPath
 )
 
 $ErrorActionPreference = 'Stop'

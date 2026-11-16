@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$DevCommit,
     [Parameter(Mandatory)][ValidatePattern('^build-[a-z0-9-]+$')][string]$BuildDirectory,
     [string]$ExpectedWorkload,
-    [string]$RepositoryProfile,
+    [Parameter(Mandatory)][string]$RepositoryProfile,
     [Parameter(Mandatory)][string]$OutputPath
 )
 
@@ -26,31 +26,19 @@ if ($headers.status -ne 'compile_input_abi_passed_native_numpy_runtime_unverifie
 $root = $original.root
 $build = Join-Path $root $BuildDirectory
 if (Test-Path -LiteralPath $build) { throw 'A fresh build directory is required; the old cache must remain unchanged.' }
-$repositories = @(
-    [ordered]@{
-        path=(Join-Path $root 'opencv'); repository='DinahK-2SO/opencv'; branch_name='5.x'
-        target_commit_sha='c261e6e4b4e4bf3c1bf4e7da23193943400579ca'
-    },
-    [ordered]@{
-        path=(Join-Path $root 'ci-baseline'); repository='DinahK-2SO/ci-gha-workflow'; branch_name='main'
-        target_commit_sha='26e5e9767c2278b18eec51763a1a85de7a44cfc3'
-    },
-    [ordered]@{
-        path=$DevRoot; repository='DinahK-2SO/ci-gha-workflow'; branch_name='perf/windows-msbuild-shared-budget'
-        target_commit_sha=$DevCommit
+$profile = Get-Content -LiteralPath $RepositoryProfile -Raw | ConvertFrom-Json
+$entries = @($profile.opencv,$profile.ci_baseline,$profile.ci_dev)
+$paths = @((Join-Path $root 'opencv'),(Join-Path $root 'ci-baseline'),$DevRoot)
+if ($profile.ci_dev.commit -cne $DevCommit) { throw 'The selected dev commit differs from the repository profile.' }
+$repositories = @(for ($index=0; $index -lt $entries.Count; $index++) {
+    $entry=$entries[$index]
+    if ($entry.commit -cnotmatch '^[0-9a-f]{40}$' -or
+        $entry.repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
+        $entry.branch_name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$') {
+        throw 'Repository profile requires explicit repository/branch identities and exact commits.'
     }
-)
-if ($RepositoryProfile) {
-    $profile = Get-Content -LiteralPath $RepositoryProfile -Raw | ConvertFrom-Json
-    $entries = @($profile.opencv,$profile.ci_baseline,$profile.ci_dev)
-    for ($index=0; $index -lt $entries.Count; $index++) {
-        $entry=$entries[$index]
-        if ($entry.commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Repository profile requires exact commits.' }
-        $repositories[$index].repository=$entry.repository
-        $repositories[$index].branch_name=$entry.branch_name
-        $repositories[$index].target_commit_sha=$entry.commit
-    }
-}
+    [ordered]@{path=$paths[$index];repository=$entry.repository;branch_name=$entry.branch_name;target_commit_sha=$entry.commit}
+})
 foreach ($repository in $repositories) {
     $actual = (& git -C $repository.path rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $actual -cne $repository.target_commit_sha) { throw 'A fixed checkout identity changed.' }
