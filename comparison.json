@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "repository": "DinahK-2SO/ci-gha-workflow",
+  "branch_name": "perf/windows-msbuild-shared-budget",
+  "source_transport": "ssh",
+  "work_parent": "C:\\opencv-onboard\\comparisons",
+  "cache_root": null,
+  "commits": [
+    {"label": "A", "commit": "26e5e9767c2278b18eec51763a1a85de7a44cfc3"},
+    {"label": "B", "commit": "3c4ce65861f71eb32f0e333bb8d39f53316c7459"},
+    {"label": "C", "commit": "cdc7b11c152b1a6fde1267e5c3df5492b21451b6"}
+  ]
+}

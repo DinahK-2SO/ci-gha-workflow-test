@@ -1,0 +1,58 @@
+#Requires -Version 7.0
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string]$SeedPackage,
+    [Parameter(Mandatory)][string]$Destination,
+    [Parameter(Mandatory)][string]$ReceiptPath
+)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+Import-Module (Join-Path $PSScriptRoot 'HandoffSupport.psm1') -Force
+$seed=Assert-HandoffPackage $SeedPackage
+$destinationPath=Assert-LocalStudyPath $Destination $PSScriptRoot
+$null=Assert-LocalStudyPath $destinationPath $SeedPackage
+$ReceiptPath=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ReceiptPath)
+$null=Assert-LocalStudyPath $ReceiptPath $SeedPackage
+if ((Test-Path -LiteralPath $destinationPath) -or (Test-Path -LiteralPath $ReceiptPath)) {
+    throw 'Preserve existing folders and assembly receipts.'
+}
+$record=[ordered]@{
+    started_at=(Get-Date).ToString('o');status='assembling';destination=$destinationPath
+    seed_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $SeedPackage 'package-manifest.json')).Hash
+    workloads_executed=$false;product_checkouts_modified=$false
+}
+New-Item -ItemType Directory -Path $destinationPath,(Split-Path $ReceiptPath) -Force | Out-Null
+try {
+    foreach ($name in @('Run-Comparison.ps1','ComparisonSupport.psm1','comparison.json')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $destinationPath $name)
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'COMPARISON.md') -Destination (Join-Path $destinationPath 'README.md')
+    $payload=Join-Path $destinationPath 'payload'
+    Copy-Item -LiteralPath $SeedPackage -Destination $payload -Recurse
+    $null=Assert-HandoffPackage $payload
+    foreach ($name in @('Start-Study.ps1','HandoffSupport.psm1')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $payload $name)
+    }
+    foreach ($name in @('Configure-CiPilot.ps1','Invoke-CiPilot.ps1','Test-CiFunctionalPair.ps1',
+            'ci_action_trial.py','prepare_ci_action.py','cmake_probe.py','build_contract.py')) {
+        Copy-Item -LiteralPath (Join-Path (Split-Path $PSScriptRoot) $name) `
+            -Destination (Join-Path $payload "scripts\msbuild\$name")
+    }
+    @('Run-Comparison.ps1','ComparisonSupport.psm1') | ForEach-Object {
+        [ordered]@{name=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $destinationPath $_)).Hash}
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $payload 'comparison-launchers.json') -Encoding utf8
+    $seed.created_at=(Get-Date).ToString('o')
+    $seed.files=@(Get-PackageInventory $payload)
+    $seed | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $payload 'package-manifest.json') -Encoding utf8
+    $null=Assert-HandoffPackage $payload
+    $record.payload_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $payload 'package-manifest.json')).Hash
+    $record.status='assembled_pending_validation'
+} catch {
+    $record.status='failed'
+    $record.error=$_.Exception.Message
+    throw
+} finally {
+    $record.finished_at=(Get-Date).ToString('o')
+    $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ReceiptPath -Encoding utf8
+}
+Write-Output "Standalone comparison folder: $destinationPath"

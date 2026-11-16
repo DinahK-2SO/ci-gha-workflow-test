@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "profile_id": "opencv5x-windows-arm64-functional-cdc7b11",
+  "comparison_axis": "baseline_vs_fixed_commit",
+  "architecture": "ARM64",
+  "generator": "Visual Studio 17 2022",
+  "build_directory": "build-portable",
+  "opencv": {
+    "repository": "DinahK-2SO/opencv",
+    "branch_name": "5.x",
+    "commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
+    "bundle": "sources/opencv.bundle",
+    "bundle_ref": "refs/heads/5.x"
+  },
+  "ci_baseline": {
+    "repository": "DinahK-2SO/ci-gha-workflow",
+    "branch_name": "main",
+    "commit": "26e5e9767c2278b18eec51763a1a85de7a44cfc3",
+    "bundle": "sources/ci.bundle",
+    "bundle_ref": "refs/heads/main"
+  },
+  "ci_dev": {
+    "repository": "DinahK-2SO/ci-gha-workflow",
+    "branch_name": "perf/windows-msbuild-shared-budget",
+    "commit": "cdc7b11c152b1a6fde1267e5c3df5492b21451b6",
+    "bundle": "sources/ci.bundle",
+    "bundle_ref": "refs/heads/perf/windows-msbuild-shared-budget"
+  },
+  "configure_options": [
+    "-DCL_Z_OPTION=/Z7",
+    "-DBUILD_EXAMPLES=ON",
+    "-DOPENCV_ENABLE_NONFREE=ON",
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DWITH_OPENCL=OFF"
+  ],
+  "python_version": "3.13.14",
+  "numpy_header_version": "2.4.2",
+  "yaml_version": "6.0.3",
+  "cmake_version": "4.1.1",
+  "project_jobs": 8,
+  "compiler_budget_policy": "available_logical_processors",
+  "build_timeout_seconds": 1800,
+  "configure_timeout_seconds": 900,
+  "minimum_free_memory_gib": 24,
+  "minimum_free_disk_gib": 30,
+  "conditions": ["baseline", "fixed"],
+  "role": "functional_qualification",
+  "performance_eligible": false,
+  "timing_use": "diagnostic_only",
+  "required_installed_tools": [
+    "PowerShell 7 or later",
+    "Git for Windows with Git Bash",
+    "Visual Studio 2022 with native C++ tools matching the selected OS architecture and a compatible Windows SDK"
+  ],
+  "platform_integration": "DUT-local entry point; no Powerlab allocation or HOBL profile/RPC lifecycle is performed.",
+  "native_numpy_runtime_included": false
+}

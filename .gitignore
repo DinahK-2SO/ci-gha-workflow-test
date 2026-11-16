@@ -1,0 +1,21 @@
+# Keep portable source separate from generated tools and results.
+/payload/
+/bootstrap-*/
+/run-*/
+/work/
+/cache/
+/out/
+__pycache__/
+*.pyc
+*.zip
+*.7z
+*.nupkg
+*.whl
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.pch
+*.binlog
+*.etl

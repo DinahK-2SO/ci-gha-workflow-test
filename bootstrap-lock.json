@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "platforms": {
+    "ARM64": {
+      "cmake": {
+        "filename": "cmake-4.1.1-windows-arm64.zip",
+        "url": "https://github.com/Kitware/CMake/releases/download/v4.1.1/cmake-4.1.1-windows-arm64.zip",
+        "algorithm": "SHA256",
+        "hash": "1d968879344bcdd29ddeaa3480ea6e7716db0de518b220743b82c7f1750b5c9b"
+      },
+      "python": {
+        "filename": "pythonarm64.3.13.14.nupkg",
+        "url": "https://www.nuget.org/api/v2/package/pythonarm64/3.13.14",
+        "algorithm": "SHA512",
+        "hash_base64": "rKajQq4oPqo6C6OTxgHG2LLA8by9iaAWDP5Co3qbTwyW658om0v/ISo3oTfis2iheP0JRY87edXpR4wPFEIxdw=="
+      }
+    },
+    "x64": {
+      "cmake": {
+        "filename": "cmake-4.1.1-windows-x86_64.zip",
+        "url": "https://github.com/Kitware/CMake/releases/download/v4.1.1/cmake-4.1.1-windows-x86_64.zip",
+        "algorithm": "SHA256",
+        "hash": "6f531bd4ba31a7aa0c3511082b544d306df50e7aecfbeef8bdbc1dd770736993"
+      },
+      "python": {
+        "filename": "python.3.13.14.nupkg",
+        "url": "https://www.nuget.org/api/v2/package/python/3.13.14",
+        "algorithm": "SHA512",
+        "hash_base64": "GyWF09xWs3V7Pfh8mlQF7sgRQo9+XtqgQ5c3gCBaUtnUK1k8MCpZwU4N6bXqI4BibpLBRKQuiYDXkeKnHG0k3A=="
+      }
+    }
+  },
+  "numpy": {
+    "filename": "numpy-2.4.2-cp313-cp313-win_amd64.whl",
+    "url": "https://files.pythonhosted.org/packages/43/bc/6352f343522fcb2c04dbaf94cb30cca6fd32c1a750c06ad6231b4293708c/numpy-2.4.2-cp313-cp313-win_amd64.whl",
+    "algorithm": "SHA256",
+    "hash": "7df2de1e4fba69a51c06c28f5a3de36731eb9639feb8e1cf7e4a7b0daf4cf622"
+  },
+  "yaml": {
+    "filename": "pyyaml-6.0.3-cp313-cp313-win_amd64.whl",
+    "url": "https://files.pythonhosted.org/packages/97/c9/39d5b874e8b28845e4ec2202b5da735d0199dbe5b8fb85f91398814a9a46/pyyaml-6.0.3-cp313-cp313-win_amd64.whl",
+    "algorithm": "SHA256",
+    "hash": "79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c"
+  }
+}

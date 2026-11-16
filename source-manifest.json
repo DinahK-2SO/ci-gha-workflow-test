@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "encoding": "UTF-8 without BOM; LF line endings",
+  "generator": "src\\msbuild\\Sync-ComparisonSources.ps1",
+  "files": [
+    {
+      "path": "Get-HostSnapshot.ps1",
+      "bytes": 4160,
+      "sha256": "D2C2EF20501A71F04E50DA09A6D4C1C8DBCBED7CF0C24043032E8FD9191B797A"
+    },
+    {
+      "path": "msbuild\\BoundedProcess.cs",
+      "bytes": 7738,
+      "sha256": "F22DAB37346ED758E3DEF5EC3F865A6B1C84180DF985A7921AE0D3293298621A"
+    },
+    {
+      "path": "msbuild\\build_contract.py",
+      "bytes": 4880,
+      "sha256": "4C2CEC31CE77AC7E2E9818D275316AB097EEC594A4A071B05DB1ADB6D6C53EC6"
+    },
+    {
+      "path": "msbuild\\ci_action_trial.py",
+      "bytes": 15312,
+      "sha256": "66B5E1AFFA78208BEA3960778C9A95293BDA0DA80A42D900A8E57E0F2350158B"
+    },
+    {
+      "path": "msbuild\\cmake_probe.py",
+      "bytes": 1602,
+      "sha256": "FF819C367F5A4A19754F6CF73FE56DD093251045B4DE8B629A474E9886CEEC0E"
+    },
+    {
+      "path": "msbuild\\Configure-CiPilot.ps1",
+      "bytes": 9029,
+      "sha256": "A4C9A95436B4C64298BD448AD11787B744467EF2E533B09EB3A986BCB9C1D507"
+    },
+    {
+      "path": "msbuild\\Export-CiFunctionalResults.ps1",
+      "bytes": 3905,
+      "sha256": "1C9B3F9B475AAAA03EF0E59EEDF0AB90F542B30DBA512A64789FE4CD49E5B2FE"
+    },
+    {
+      "path": "msbuild\\Invoke-CiPilot.ps1",
+      "bytes": 21363,
+      "sha256": "BC55E3F7797569A7F859E088C61E508CF693CDC70523FEE692AFF7DB442AF872"
+    },
+    {
+      "path": "msbuild\\NativeArchitecture.psm1",
+      "bytes": 2534,
+      "sha256": "01DD49198016D5807F182AFC2DC7F4ED81F0E0EFA124C42FC138A37B663BC06A"
+    },
+    {
+      "path": "msbuild\\prepare_ci_action.py",
+      "bytes": 3141,
+      "sha256": "5E5AAB5285C22183E9DC5628D902B8CA09D333C28F8472557D281C6E152EE408"
+    },
+    {
+      "path": "msbuild\\Prepare-PythonDevelopment.ps1",
+      "bytes": 4677,
+      "sha256": "C50AC6521F2E0089CA34446011C12BDD8412791C87A6363CAB5C87D01607A1BD"
+    },
+    {
+      "path": "msbuild\\Test-BoundedProcess.ps1",
+      "bytes": 2410,
+      "sha256": "545CE2056FF9667A450C88DC5BC3BF8DB8E3310D68D38DC9DF462C74A53B1CF4"
+    },
+    {
+      "path": "msbuild\\Test-CiFunctionalPair.ps1",
+      "bytes": 9389,
+      "sha256": "6DAD8E7DC2D67D9EA986C55A0D3FC3AFC962181998BEDD37014D52A81EB0EC1A"
+    },
+    {
+      "path": "msbuild\\tests\\bounded_fixture.py",
+      "bytes": 732,
+      "sha256": "5D4F2288AA731756AD0FF438D42B321C76E5F771A74EA638FDF4E745F502DEA9"
+    },
+    {
+      "path": "msbuild\\tests\\numpy-headers\\CMakeLists.txt",
+      "bytes": 866,
+      "sha256": "EEB429B263F24FC526A98EA50E03899AB6A8848FAC3D7EE0BD3EF65EB7DFFD2D"
+    },
+    {
+      "path": "msbuild\\tests\\numpy-headers\\main.cpp",
+      "bytes": 1707,
+      "sha256": "F8C5B4D1CFD7EEFD0293B381FCDC6C89A3661CB923733556FD4BC515C8B4E088"
+    },
+    {
+      "path": "msbuild\\Watch-BuildResources.ps1",
+      "bytes": 1596,
+      "sha256": "B29FEC54CABD95EC7D58C44108747A43397DEEE2F934311CD9BE3BA8DB06A647"
+    }
+  ]
+}
