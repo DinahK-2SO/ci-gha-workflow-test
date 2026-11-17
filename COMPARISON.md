@@ -34,8 +34,9 @@ fallback to the author's drive layout. Path checks are read-only.
 Repository names in the supplied config identify the original investigation
 targets, not mandatory GitHub accounts. Change them to repositories you can
 access. Each repository must contain its case's selected commit, and each
-named branch must exist. Branch heads are recorded, not substituted for the
-requested commits. The old object-with-`commits` config is rejected: migrate
+named branch must exist in the source cache or be fetched successfully.
+Recorded branch heads are cached snapshots, not live upstream checks, and are
+never substituted for requested commits. The old object-with-`commits` config is rejected: migrate
 each entry to the six explicit source fields in the array.
 
 From a clean handoff source folder, the same command automatically creates an isolated
@@ -52,9 +53,9 @@ build tree and results, even when two cases select the same commits.
 Preparation/download time is not measured native build time.
 
 Cache misses require access to the pinned CMake release, NuGet or configured
-Python package sources. Bootstrap still retrieves the configured Git repositories
-even when all dependency archives are cached. Existing Git credentials must
-already work. Failures are explicit and retained in `bootstrap.json` with
+Python package sources. Git access is needed only for a missing repository,
+branch or commit; complete source-cache hits work offline. Existing Git
+credentials must already work for misses. Failures are explicit and retained in `bootstrap.json` with
 download/source logs; no alternate versions, transport fallback or automatic
 retry is used. Partial payloads are rejected, not silently rebuilt.
 
@@ -64,6 +65,10 @@ Successful low-level Git commands stay quiet. Git operations and case controller
 that are still running after 60 seconds show their diagnostic log path, then
 repeat at most every two minutes. This means "still running", not proof of a
 hang. Failures immediately identify the failed stage and its log.
+Failed or timed-out Git commands also print up to six trailing log lines
+(at most 500 characters per line) and include them in the error receipt, so
+transport or authentication errors are visible without opening the log.
+The complete log is retained; this does not add retries or transport fallback.
 Detailed case-controller output stays in `prepare.log`, `build.log` and
 `export.log` beside each case's export directory; aggregate checks use
 `results\validation.log`. Run and final-summary paths are still printed.
@@ -118,7 +123,7 @@ The installed toolchain check, dependency/ABI preparation and selected full
 builds still must pass locally. VS2026-only installations, 32-bit Windows and
 other targets are not selected by this pinned VS2022 profile.
 
-## Dependency cache
+## Cache location
 
 The default is `$env:LOCALAPPDATA\opencv-build-test\cache`.
 To use another fixed local drive, pass a command-line option:
@@ -130,6 +135,43 @@ To use another fixed local drive, pass a command-line option:
 Use an absolute local path, not UNC, an environment-variable expression or a
 reparse-point destination. The source/package directory cannot be the cache.
 If `LOCALAPPDATA` is unavailable, an explicit path is required.
+
+### Git source cache
+
+OpenCV and CI selections use the same `Get-ComparisonCachedGitSource` helper.
+Repositories persist under `<CacheRoot>\git\<repository-id>.git` as bare
+repositories, separate from dependency archives and per-run worktrees.
+The repository ID is SHA256 of the lowercase `owner/name`; hashed directory
+names avoid Windows reserved names and path ambiguity. The raw origin URL
+identifies each repository. Credentials remain in the existing Git credential
+configuration, not in generated cache URLs.
+
+On a hit, the helper verifies the origin, complete bare-repository layout and
+object integrity with `git fsck --full`, then fetches the selected commit locally into the run's
+independent repository. No remote request, shared worktree, object alternate
+or build output is used. Branch snapshots are stored under case-sensitive hashed
+refs, and selected commits are pinned so a later branch update cannot discard
+them. A cache miss creates the repository if needed, fetches the requested
+branch, and fetches the exact commit separately only if that branch did not
+provide it. Missing commits refresh their branch snapshot; an existing
+branch/commit hit does not poll upstream. The comparison config still requires
+full commit SHAs, even though the helper can also resolve a cached branch.
+
+An exclusive per-repository lock covers verification, updates and local source
+transfer. A busy cache fails explicitly instead of racing another invocation.
+Wrong origins, shallow/shared-object caches and corruption fail without
+deleting, replacing or silently repairing the cache. Failed transfers retain
+logs and valid prior cached refs; there is no automatic retry or transport
+fallback. Initial large downloads can still fail if the connection drops.
+
+Each run builds and verifies its own standalone bundles, independent checkouts
+and build directories. `source-cache.json` records resolved repository IDs,
+paths, branch snapshots and hit/fetch outcomes for that bootstrap or run.
+Deleting a run does not delete the shared cache. Old run-local repositories are
+not automatically imported; the shared cache is populated on first successful
+acquisition.
+
+### Dependency cache
 
 Entries are keyed by checksum algorithm, pinned digest and archive filename.
 Each hit is rehashed before use. A corrupt entry causes an explicit error

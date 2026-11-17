@@ -77,18 +77,6 @@ function Assert-ComparisonSourceTree([string]$SourceRoot) {
     }
 }
 
-function Resolve-ComparisonCacheRoot($Config,[string]$SourceRoot) {
-    $path=if ($Config.PSObject.Properties['cache_root'] -and $Config.cache_root) {
-        $Config.cache_root
-    } else {
-        if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-            throw 'LOCALAPPDATA is unavailable; pass -CacheRoot with an explicit local directory.'
-        }
-        Join-Path $env:LOCALAPPDATA 'opencv-build-test\cache'
-    }
-    return Assert-LocalStudyPath $path $SourceRoot
-}
-
 function Get-ComparisonWheelSpec($Entry) {
     if (-not $Entry.PSObject.Properties['source'] -or $Entry.source -cne 'pip' -or
         $Entry.algorithm -cne 'SHA256' -or
@@ -365,4 +353,4 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
     return $folder
 }
 
-Export-ModuleMember -Function Assert-ComparisonSourceTree,Resolve-ComparisonCacheRoot,New-ComparisonBootstrap,Get-ComparisonDependencyLock
+Export-ModuleMember -Function Assert-ComparisonSourceTree,New-ComparisonBootstrap,Get-ComparisonDependencyLock

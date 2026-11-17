@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $script:comparisonStage='[Sources] Git'
+$script:gitSequence=0
 
 function Invoke-ComparisonStage([string]$Stage,[scriptblock]$Action,[string]$LogPath) {
     $previous=$script:comparisonStage
@@ -89,6 +90,18 @@ function Resolve-ComparisonWorkParent($Config,[string]$SourceRoot) {
     return Assert-LocalStudyPath $path $SourceRoot
 }
 
+function Resolve-ComparisonCacheRoot($Config,[string]$SourceRoot) {
+    $path=if ($Config.PSObject.Properties['cache_root'] -and $Config.cache_root) {
+        $Config.cache_root
+    } else {
+        if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            throw 'LOCALAPPDATA is unavailable; pass -CacheRoot with an explicit local directory.'
+        }
+        Join-Path $env:LOCALAPPDATA 'opencv-build-test\cache'
+    }
+    return Assert-LocalStudyPath $path $SourceRoot
+}
+
 function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments,[string]$Stage,[string]$LogPath) {
     if (-not $Stage -and -not $LogPath) {
         & ([Environment]::ProcessPath) -NoLogo -NoProfile -NonInteractive -File $Path @Arguments
@@ -110,7 +123,16 @@ function Invoke-ComparisonScript([string]$Path,[string[]]$Arguments,[string]$Sta
     } $LogPath
 }
 
-function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arguments,[int]$TimeoutSeconds=300) {
+function Get-ComparisonGitDiagnostics([string]$LogPath) {
+    Get-Content -LiteralPath $LogPath -Tail 8 | ForEach-Object {
+        $_ -split "`r"
+    } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 6 | ForEach-Object {
+        if ($_.Length -gt 500) { $_.Substring(0,500)+'...' } else { $_ }
+    }
+}
+
+function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arguments,[int]$TimeoutSeconds=300,
+        [int[]]$AllowedExitCodes=@(0)) {
     $script:gitSequence++
     $log=Join-Path $LogRoot ("git-{0:d3}.log" -f $script:gitSequence)
     $stage=$script:comparisonStage
@@ -122,15 +144,121 @@ function Invoke-ComparisonGit([string]$Directory,[string]$LogRoot,[string[]]$Arg
     $result=[OpenCvBoundedProcess]::RunWithProgress((Get-Command git -CommandType Application | Select-Object -First 1).Source,
         $Arguments,$Directory,$log,$TimeoutSeconds,$progress)
     Write-ComparisonJson $result ($log+'.json')
-    if ($result.TimedOut) { throw "Git operation timed out after $TimeoutSeconds seconds (exit $($result.ExitCode)). Log: $log" }
-    if ($result.ExitCode -ne 0) { throw "Git operation failed (exit $($result.ExitCode)). Log: $log" }
+    if ($result.TimedOut -or $result.ExitCode -notin $AllowedExitCodes) {
+        $tail=@(Get-ComparisonGitDiagnostics $log)
+        if ($tail.Count) {
+            Write-Host "Git diagnostics (last lines; full log: $log):"
+            foreach ($line in $tail) { Write-Host "  $line" }
+        }
+        $failure=if ($result.TimedOut) {
+            "Git operation timed out after $TimeoutSeconds seconds (exit $($result.ExitCode))."
+        } else { "Git operation failed (exit $($result.ExitCode))." }
+        $detail=if ($tail.Count) { "`n"+($tail -join "`n") } else { '' }
+        throw "$failure Log: $log$detail"
+    }
     return [IO.File]::ReadAllText($log).Trim()
+}
+
+function Get-ComparisonGitRevision([string]$Bare,[string]$Revision,[string]$Directory,[string]$LogRoot) {
+    $value=Invoke-ComparisonGit $Directory $LogRoot @("--git-dir=$Bare",'rev-parse','--verify','--quiet',"$Revision~0") `
+        -AllowedExitCodes @(0,1)
+    if ($value -and $value -cnotmatch '^[0-9a-f]{40}$') {
+        throw "Unexpected cached Git revision response: $value"
+    }
+    return $value
+}
+
+function Get-ComparisonCachedGitSource(
+        [string]$Repository,[string]$BranchName,[string]$Commit,[string]$CacheRoot,
+        [ValidateSet('https','ssh')][string]$SourceTransport='https',
+        [string]$Destination,[string]$Reference,[string]$LogRoot,[int]$TimeoutSeconds=1800) {
+    if ($Repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
+        @($Repository.Split('/') | Where-Object { $_ -in @('.','..') }).Count) {
+        throw 'A Git source cache requires an owner/name repository.'
+    }
+    if ($BranchName -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
+        ($Commit -and $Commit -cnotmatch '^[0-9a-f]{40}$')) {
+        throw 'A Git source cache requires an explicit branch and an optional full lowercase commit SHA.'
+    }
+    $cache=Assert-LocalStudyPath $CacheRoot $PSScriptRoot
+    $key=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+        [Text.Encoding]::UTF8.GetBytes($Repository.ToLowerInvariant()))).ToLowerInvariant()
+    $bare=Assert-LocalStudyPath (Join-Path $cache "git\$key.git") $PSScriptRoot
+    $lockPath=Assert-LocalStudyPath ($bare+'.lock') $PSScriptRoot
+    New-Item -ItemType Directory -Path (Split-Path $bare) -Force | Out-Null
+    try {
+        $guard=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    } catch [IO.IOException] {
+        if (($_.Exception.HResult -band 0xffff) -notin @(32,33)) { throw }
+        throw "Git source cache is in use: $bare. Retry after its current owner finishes."
+    }
+    try {
+        $directory=Split-Path $Destination
+        $null=Invoke-ComparisonGit $directory $LogRoot @('check-ref-format',"refs/heads/$BranchName")
+        $null=Invoke-ComparisonGit $directory $LogRoot @('check-ref-format',$Reference)
+        $https="https://github.com/$Repository.git"
+        $ssh="git@github.com:$Repository.git"
+        $url=if ($SourceTransport -eq 'ssh') { $ssh } else { $https }
+        if (-not (Test-Path -LiteralPath $bare)) {
+            $partial=$bare+'.partial-'+[guid]::NewGuid().ToString('N')
+            $null=Invoke-ComparisonGit $directory $LogRoot @('init','--bare','--quiet',$partial)
+            $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$partial",'remote','add','origin',$url)
+            Move-Item -LiteralPath $partial -Destination $bare
+        }
+        $origin=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'config','--get','remote.origin.url')
+        if ($origin -notin @($https,$ssh)) { throw "Git source cache origin differs: $bare. Expected $Repository." }
+        $isBare=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'rev-parse','--is-bare-repository')
+        $isShallow=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'rev-parse','--is-shallow-repository')
+        if ($isBare -cne 'true' -or $isShallow -cne 'false' -or
+            (Test-Path -LiteralPath (Join-Path $bare 'objects\info\alternates'))) {
+            throw "Git source cache must be a complete independent bare repository: $bare"
+        }
+        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fsck','--full','--no-dangling') $TimeoutSeconds
+        # Encode branch names so Windows filename rules and case folding cannot alias refs.
+        $branchKey=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::UTF8.GetBytes($BranchName))).ToLowerInvariant()
+        $branchRef="refs/cache/branches/$branchKey"
+        $head=Get-ComparisonGitRevision $bare $branchRef $directory $LogRoot
+        $selected=if ($Commit) { Get-ComparisonGitRevision $bare $Commit $directory $LogRoot } else { $head }
+        $status='hit'
+        if (-not $head -or -not $selected) {
+            $status='fetched'
+            Write-Host "[Sources] Cache miss: $Repository ($BranchName); fetching missing source."
+            $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fetch','--progress',
+                '--atomic','--no-tags','--no-auto-maintenance',$url,"+refs/heads/$($BranchName):$branchRef") $TimeoutSeconds
+            $head=Get-ComparisonGitRevision $bare $branchRef $directory $LogRoot
+            if (-not $head) { throw "Fetched branch is absent from the source cache: $Repository/$BranchName" }
+            $selected=if ($Commit) { Get-ComparisonGitRevision $bare $Commit $directory $LogRoot } else { $head }
+            if (-not $selected -and $Commit) {
+                $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fetch','--progress',
+                    '--no-tags','--no-auto-maintenance',$url,$Commit) $TimeoutSeconds
+                $selected=Get-ComparisonGitRevision $bare $Commit $directory $LogRoot
+            }
+        } else {
+            Write-Host "[Sources] Cache hit: $Repository@$($selected.Substring(0,8)); no network fetch."
+        }
+        if (-not $selected -or ($Commit -and $selected -cne $Commit)) {
+            throw "The selected SHA does not identify the requested commit: $Repository@$Commit"
+        }
+        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'update-ref',"refs/cache/commits/$selected",$selected)
+        if ($status -eq 'fetched') {
+            $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fsck','--full','--no-dangling',$selected) $TimeoutSeconds
+        }
+        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$Destination",'-c','fetch.fsckObjects=true',
+            'fetch','--quiet','--no-tags','--no-auto-maintenance',$bare,"+$($selected):$Reference") $TimeoutSeconds
+        return [pscustomobject]@{
+            repository=$Repository;branch_name=$BranchName;commit=$selected
+            branch_head_at_check=$head;cache_path=$bare;cache_status=$status
+        }
+    } finally { $guard.Dispose() }
 }
 
 function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch]$WithoutSeed) {
     $script:gitSequence=0
     $logs=Join-Path $RunRoot 'source-logs'
     New-Item -ItemType Directory -Path $logs | Out-Null
+    $cacheRoot=Resolve-ComparisonCacheRoot $Config $PSScriptRoot
+    $cacheRecords=[Collections.Generic.List[object]]::new()
     $entries=@($Config.cases | ForEach-Object { [ordered]@{label=$_.label;opencv=$null;ci=$null} })
     foreach ($kind in @('opencv','ci')) {
         $prefix=if ($kind -eq 'ci') {'ci-gha'} else {'opencv'}
@@ -148,37 +276,29 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
             }
         } $logs
         $refs=@()
-        $branches=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
-        $fetched=[Collections.Generic.Dictionary[string,bool]]::new([StringComparer]::Ordinal)
+        $resolved=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
         for ($index=0; $index -lt $Config.cases.Count; $index++) {
             $selection=$Config.cases[$index]
             $repository=$selection."$prefix-repo"
             $branchName=$selection."$prefix-branch"
             $commit=$selection."$prefix-commit"
-            $url=if($Config.source_transport -eq 'ssh'){"git@github.com:$repository.git"}else{"https://github.com/$repository.git"}
             $ref="refs/heads/comparison-$($index+1)"
             $stage="[Sources] $($selection.label): fetch and verify $name $repository@$($commit.Substring(0,8))"
             $entries[$index][$kind]=Invoke-ComparisonStage $stage {
-                $branchKey="$repository|$branchName"
-                if (-not $branches.ContainsKey($branchKey)) {
-                    $branch=Invoke-ComparisonGit $RunRoot $logs @('ls-remote','--exit-code',$url,"refs/heads/$branchName")
-                    if ($branch -cnotmatch ('^([0-9a-f]{40})\s+'+[regex]::Escape("refs/heads/$branchName")+'$')) {
-                        throw 'Unexpected remote branch response.'
-                    }
-                    $branches[$branchKey]=$Matches[1]
-                }
-                $fetchKey="$repository|$commit"
-                if (-not $fetched.ContainsKey($fetchKey)) {
-                    $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'fetch','--progress','--no-tags',$url,$commit) $timeout
-                    $type=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'cat-file','-t',$commit)
-                    if ($type -cne 'commit') { throw 'The selected SHA does not identify a commit.' }
-                    $fetched[$fetchKey]=$true
+                $key="$repository|$branchName|$commit"
+                if (-not $resolved.ContainsKey($key)) {
+                    $source=Get-ComparisonCachedGitSource -Repository $repository -BranchName $branchName `
+                        -Commit $commit -CacheRoot $cacheRoot -SourceTransport $Config.source_transport `
+                        -Destination $bare -Reference $ref -LogRoot $logs -TimeoutSeconds $timeout
+                    $resolved[$key]=$source
+                    $cacheRecords.Add($source)
+                    Write-ComparisonJson @($cacheRecords.ToArray()) (Join-Path $RunRoot 'source-cache.json')
                 }
                 $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$bare",'update-ref',$ref,$commit)
                 [ordered]@{
                     repository=$repository;branch_name=$branchName;commit=$commit
                     bundle="sources/$kind.bundle";bundle_ref=$ref
-                    branch_head_at_check=$branches[$branchKey]
+                    branch_head_at_check=$resolved[$key].branch_head_at_check
                 }
             } $logs
             $refs+=$ref
@@ -195,6 +315,7 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
     Write-ComparisonJson ([ordered]@{
         selected=$entries
         branch_is_provenance_not_a_floating_execution_target=$true
+        branch_heads_are_cached_snapshots_not_live_checks=$true
     }) (Join-Path $Package 'sources\provenance.json')
     Invoke-ComparisonStage '[Sources] Verify selected source package' {
         Set-ComparisonCaseProfile $Package $entries[0]
@@ -321,4 +442,4 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
 
 Export-ModuleMember -Function Read-ComparisonConfig,Write-ComparisonJson,Invoke-ComparisonScript,
     New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent,Invoke-ComparisonStage,
-    Write-ComparisonResults
+    Write-ComparisonResults,Resolve-ComparisonCacheRoot,Get-ComparisonCachedGitSource

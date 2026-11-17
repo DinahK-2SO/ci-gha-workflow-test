@@ -107,6 +107,8 @@ try {
     }
 } finally { $env:LOCALAPPDATA=$savedLocalAppData }
 $checks += [ordered]@{test='portable-work-and-cache-paths';passed=$true}
+$checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-GitSourceCache.ps1') `
+    -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'git-source-cache'))
 $checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-ComparisonSelections.ps1') `
     -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'source-selections'))
 $checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-IndependentResults.ps1') `

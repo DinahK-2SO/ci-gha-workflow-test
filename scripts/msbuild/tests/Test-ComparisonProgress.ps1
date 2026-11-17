@@ -41,6 +41,47 @@ if (-not $rejected -or $text -notmatch 'FAILED' -or $text -match '\.\.\. OK' -or
 [ordered]@{test='failed-stage-identifies-log-and-preserves-native-exit';passed=$true}
 & (Get-Module ComparisonSupport) {
     param($Root)
+    $script:gitSequence=0
+    $logs=Join-Path $Root 'git-failure'
+    New-Item -ItemType Directory -Path $logs | Out-Null
+    $terminal=Join-Path $Root 'git-failure-terminal.txt'
+    $diagnosticLog=Join-Path $Root 'connection-reset.log'
+    $diagnosticLines=@(('x'*600))*8+@(
+        'error: RPC failed; curl 56 Recv failure: Connection was reset',
+        'fatal: early EOF'
+    )
+    [IO.File]::WriteAllText($diagnosticLog,($diagnosticLines -join "`r")+"`n")
+    $tail=@(Get-ComparisonGitDiagnostics $diagnosticLog)
+    if ($tail.Count -ne 6 -or $tail[0].Length -ne 503 -or
+        $tail[4] -notmatch 'Connection was reset' -or $tail[5] -cne 'fatal: early EOF' -or
+        [IO.File]::ReadAllText($diagnosticLog) -cne (($diagnosticLines -join "`r")+"`n")) {
+        throw 'Git diagnostic tails lose the cause, exceed output bounds or modify original logs.'
+    }
+    $rejected=$false
+    try { $null=Invoke-ComparisonGit $Root $logs @("--git-dir=$(Join-Path $Root 'missing.git')",'rev-parse','HEAD') 6> $terminal } catch {
+        if ($_.Exception.Message -notlike 'Git operation failed (exit 128)*fatal:*missing.git*') { throw }
+        $rejected=$true
+    }
+    $text=Get-Content $terminal -Raw
+    $receipt=Get-Content (Join-Path $logs 'git-001.log.json') -Raw | ConvertFrom-Json
+    if (-not $rejected -or $script:gitSequence -ne 1 -or $receipt.ExitCode -ne 128 -or
+        $receipt.TimedOut -or $text -notmatch 'fatal:.*missing.git' -or $text -notmatch 'full log:') {
+        throw 'Git failure diagnostics were hidden, retried or lost their receipt.'
+    }
+    $bare=Join-Path $Root 'empty.git'
+    $null=Invoke-ComparisonGit $Root $logs @('init','--bare','--quiet',$bare)
+    $rejected=$false
+    try { $null=Invoke-ComparisonGit $Root $logs @("--git-dir=$bare",'rev-parse','--verify','--quiet','HEAD') 6> $terminal } catch {
+        if ($_.Exception.Message -notlike 'Git operation failed (exit 1). Log:*') { throw }
+        $rejected=$true
+    }
+    if (-not $rejected -or (Get-Content $terminal -Raw)) {
+        throw 'An empty Git failure log hid the failure or reused stale diagnostics.'
+    }
+} $WorkRoot
+[ordered]@{test='git-failures-print-original-diagnostics-without-retrying';passed=$true}
+& (Get-Module ComparisonSupport) {
+    param($Root)
     $terminal=Join-Path $Root 'heartbeat-terminal.txt'
     $log=Join-Path $Root 'slow.log'
     $state=@{next=60}

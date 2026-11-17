@@ -98,7 +98,7 @@ try {
             'ci-gha-repo'='fixture/ci-b';'ci-gha-branch'='main';'ci-gha-commit'=$ids['ci-b']}
     )
     Write-ComparisonJson $cases $path
-    $config=Read-ComparisonConfig $path
+    $config=Read-ComparisonConfig $path -CacheRoot (Join-Path $WorkRoot 'cache')
     $package=Join-Path $WorkRoot 'package'
     New-Item -ItemType Directory -Path (Join-Path $package 'sources') | Out-Null
     $profile=Get-Content (Join-Path $SourceRoot 'profile.json') -Raw | ConvertFrom-Json
@@ -148,6 +148,25 @@ try {
         throw 'Seed reuse changed the selected identities.'
     }
     [ordered]@{test='independent-repositories-branches-commits-and-seeded-bundles';passed=$true}
+    $offlineUri=([Uri]((Join-Path $WorkRoot 'unavailable')+'\')).AbsoluteUri.TrimEnd('/')
+    for ($index=0; $index -lt $number; $index++) {
+        [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_$index","url.$offlineUri.insteadOf",'Process')
+    }
+    $offlinePackage=Join-Path $WorkRoot 'offline-package'
+    New-Item -ItemType Directory -Path (Join-Path $offlinePackage 'sources') | Out-Null
+    foreach ($name in @('profile.json','package-manifest.json')) {
+        Copy-Item -LiteralPath (Join-Path $package $name) -Destination (Join-Path $offlinePackage $name)
+    }
+    $offlineRun=Join-Path $WorkRoot 'offline-run'
+    New-Item -ItemType Directory -Path $offlineRun | Out-Null
+    $offlineEntries=@(New-ComparisonSources $config $offlinePackage $offlineRun -WithoutSeed)
+    $cacheRecords=@(Get-Content (Join-Path $offlineRun 'source-cache.json') -Raw | ConvertFrom-Json)
+    if (($offlineEntries | ConvertTo-Json -Depth 8 -Compress) -cne ($entries | ConvertTo-Json -Depth 8 -Compress) -or
+        @($cacheRecords | Where-Object cache_status -CNE 'hit').Count) {
+        throw 'A fresh seed-free run did not reuse cached source identities offline.'
+    }
+    $null=Assert-HandoffPackage $offlinePackage
+    [ordered]@{test='seed-free-next-run-reuses-git-cache-with-remotes-unavailable';passed=$true}
 } finally {
     foreach ($variable in Get-ChildItem Env: | Where-Object Name -Like 'GIT_CONFIG_*') {
         [Environment]::SetEnvironmentVariable($variable.Name,$null,'Process')

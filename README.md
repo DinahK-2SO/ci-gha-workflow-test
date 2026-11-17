@@ -31,7 +31,7 @@ Studio 2022 C++ tools/SDK installed:
 .\Run-Comparison.ps1
 ```
 
-Dependencies are cached automatically; Python wheels respect local pip sources.
+Dependencies and Git repositories are cached across runs; Python wheels respect local pip sources.
 Each test gets its own checkouts and build tree. `/nr:false` is test-only.
 
 ## 3. Read the results
