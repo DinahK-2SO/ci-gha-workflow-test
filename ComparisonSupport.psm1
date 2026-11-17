@@ -231,6 +231,54 @@ function New-ComparisonCasePackage([string]$Package,$Selection,[string]$Destinat
     Set-ComparisonCaseProfile $Destination $Selection
 }
 
+function Write-ComparisonResults([string]$SummaryPath,$Cases) {
+    $summary=Get-Content -LiteralPath $SummaryPath -Raw | ConvertFrom-Json
+    if ($summary.status -cne 'configured_comparison_passed' -or
+        $summary.conditions.Count -ne @($Cases).Count) {
+        throw "Cannot print results before all cases are verified: $SummaryPath"
+    }
+    $culture=[Globalization.CultureInfo]::InvariantCulture
+    $rows=[Collections.Generic.List[string[]]]::new()
+    $rows.Add(@('Case','OpenCV','Builder','Build (s)','Pre-build CPU samples (%)','CPU mean (%)','C++','Binding DLL'))
+    foreach ($condition in $summary.conditions) {
+        $case=@($Cases | Where-Object label -CEQ $condition.label)
+        if ($case.Count -ne 1) { throw "Cannot locate unique results for case: $($condition.label)" }
+        $executionPath=Join-Path $case[0].export 'execution.json'
+        $execution=Get-Content -LiteralPath $executionPath -Raw | ConvertFrom-Json
+        if ($execution.status -cne 'functional_build_passed' -or
+            $execution.protocol_sha256 -cne $condition.protocol_sha256) {
+            throw "Execution does not match verified results: $executionPath"
+        }
+        $samples=@($execution.preflight.cpu_samples_percent | ForEach-Object {
+            ([double]$_).ToString('G',$culture)
+        })
+        $count=$condition.selected_cpp_checks_passed
+        $rows.Add(@(
+            $condition.label,
+            $condition.repositories[1].actual_commit_sha.Substring(0,7),
+            $condition.repositories[0].actual_commit_sha.Substring(0,7),
+            ([double]$condition.native_wall_seconds).ToString('F2',$culture),
+            ($samples -join ', '),
+            ([double]$execution.preflight.cpu_mean_percent).ToString('F1',$culture),
+            "$count/$count",
+            $(if ($condition.raw_binding_dll_load_passed) {'PASS'} else {'FAIL'})
+        ))
+    }
+    $widths=@(for ($column=0; $column -lt $rows[0].Count; $column++) {
+        ($rows | ForEach-Object { $_[$column].Length } | Measure-Object -Maximum).Maximum
+    })
+    Write-Host ''
+    foreach ($row in $rows) {
+        $cells=for ($column=0; $column -lt $row.Count; $column++) {
+            if ($column -in @(3,5,6)) { $row[$column].PadLeft($widths[$column]) }
+            else { $row[$column].PadRight($widths[$column]) }
+        }
+        Write-Host (($cells -join '  ').TrimEnd())
+    }
+    Write-Host 'Commits are abbreviated. Each case was built once; timings are diagnostic only.'
+    Write-Host 'CPU samples and means describe whole-machine usage before each build, not during it.'
+}
+
 function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$SummaryPath) {
     $consumed=[double]$Record.consumed_outer_build_seconds
     foreach ($case in $Cases) {
@@ -272,4 +320,5 @@ function Invoke-ComparisonCases($Cases,[string]$Scripts,$Record,[string]$Summary
 }
 
 Export-ModuleMember -Function Read-ComparisonConfig,Write-ComparisonJson,Invoke-ComparisonScript,
-    New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent,Invoke-ComparisonStage
+    New-ComparisonSources,New-ComparisonCasePackage,Invoke-ComparisonCases,Resolve-ComparisonWorkParent,Invoke-ComparisonStage,
+    Write-ComparisonResults

@@ -139,6 +139,7 @@ try {
         Invoke-ComparisonScript (Join-Path $scripts 'Test-CiFunctionalPair.ps1') @(
             '-CasesFile',$casesFile,'-OutputPath',(Join-Path $results 'functional-summary.json')) `
             '[Results] Validate all cases' (Join-Path $results 'validation.log')
+        Write-ComparisonResults (Join-Path $results 'functional-summary.json') $record.cases
         $record.status='configured_comparison_passed'
     }
 } catch {

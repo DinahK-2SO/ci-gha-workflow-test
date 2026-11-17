@@ -67,6 +67,12 @@ hang. Failures immediately identify the failed stage and its log.
 Detailed case-controller output stays in `prepare.log`, `build.log` and
 `export.log` beside each case's export directory; aggregate checks use
 `results\validation.log`. Run and final-summary paths are still printed.
+After all cases pass aggregate validation, an aligned English table (without
+grid lines) shows the case, abbreviated OpenCV and builder commits, single-build
+seconds, pre-build CPU samples and mean, C++ checks and binding DLL load result.
+Values come from that run's verified results and archived execution records,
+not the current editable configuration. CPU readings describe whole-machine
+usage before each build, not average usage during the build.
 Controller observation adds no outer deadline or changes to native build timing.
 The full-history OpenCV fetch and bundle creation each have a 30-minute deadline;
 other Git commands retain a five-minute deadline. Git exit codes and timeout

@@ -106,6 +106,64 @@ if (-not $rejected -or $cases[0].status -cne 'passed' -or $cases[1].status -cne 
     throw 'Case labels, accounting, failure export or stop-on-failure changed during progress reporting.'
 }
 [ordered]@{test='numbered-case-progress-preserves-failure-export-and-stop';passed=$true}
+$tableCases=@()
+$tableConditions=@()
+foreach ($label in @('A','case-with-a-long-label')) {
+    $directory=Join-Path $WorkRoot "table-$label"
+    New-Item -ItemType Directory -Path $directory | Out-Null
+    $first=$label -ceq 'A'
+    $tableCases+=@{label=$label;export=$directory}
+    Write-ComparisonJson @{
+        status='functional_build_passed';protocol_sha256=$label
+        preflight=@{
+            cpu_samples_percent=$(if($first){@(14,7,13,12,3)}else{@(0,10,20,30,40)})
+            cpu_mean_percent=$(if($first){9.8}else{20})
+        }
+    } (Join-Path $directory 'execution.json')
+    $tableConditions+=@{
+        label=$label;protocol_sha256=$label
+        repositories=@(@{actual_commit_sha=('b'*40)},@{actual_commit_sha=('a'*40)})
+        native_wall_seconds=$(if($first){542.5353627}else{12.346})
+        selected_cpp_checks_passed=10;raw_binding_dll_load_passed=$true
+    }
+}
+$tableSummary=Join-Path $WorkRoot 'table-summary.json'
+Write-ComparisonJson @{status='configured_comparison_passed';conditions=$tableConditions} $tableSummary
+$terminal=Join-Path $WorkRoot 'table-terminal.txt'
+$oldCulture=[Globalization.CultureInfo]::CurrentCulture
+try {
+    [Globalization.CultureInfo]::CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo('fr-FR')
+    $output=Write-ComparisonResults $tableSummary @($tableCases[1],$tableCases[0]) 6> $terminal
+} finally { [Globalization.CultureInfo]::CurrentCulture=$oldCulture }
+$lines=@(Get-Content $terminal | Where-Object { $_ })
+if ($null -ne $output -or $lines.Count -ne 5 -or
+    $lines[0] -notmatch '^Case\s+OpenCV\s+Builder\s+Build \(s\)\s+Pre-build CPU samples \(%\)\s+CPU mean \(%\)\s+C\+\+\s+Binding DLL$' -or
+    $lines[1] -notmatch '^A\s+aaaaaaa\s+bbbbbbb\s+542\.54\s+14, 7, 13, 12, 3\s+9\.8\s+10/10\s+PASS$' -or
+    $lines[2] -notmatch '^case-with-a-long-label\s+aaaaaaa\s+bbbbbbb\s+12\.35\s+0, 10, 20, 30, 40\s+20\.0\s+10/10\s+PASS$' -or
+    $lines[1].IndexOf('aaaaaaa') -ne $lines[0].IndexOf('OpenCV') -or
+    $lines[2].IndexOf('aaaaaaa') -ne $lines[0].IndexOf('OpenCV') -or
+    $lines[1].IndexOf('PASS') -ne $lines[2].IndexOf('PASS') -or
+    $lines[3] -notmatch 'built once' -or $lines[4] -notmatch 'before each build, not during') {
+    throw 'Result table lost alignment, identities, preflight data, English number formatting or timing caveats.'
+}
+[ordered]@{test='result-table-aligns-verified-identities-and-prebuild-cpu-in-english';passed=$true}
+foreach ($invalid in @('unverified-summary','mismatched-execution')) {
+    $fixture=Get-Content $tableSummary -Raw | ConvertFrom-Json
+    if ($invalid -eq 'unverified-summary') { $fixture.status='failed' }
+    else { $fixture.conditions[0].protocol_sha256='different-run' }
+    $path=Join-Path $WorkRoot "$invalid.json"
+    Write-ComparisonJson $fixture $path
+    $rejected=$false
+    try { Write-ComparisonResults $path $tableCases 6> $terminal } catch {
+        if ($_.Exception.Message -notlike 'Cannot print results before all cases are verified:*' -and
+            $_.Exception.Message -notlike 'Execution does not match verified results:*') { throw }
+        $rejected=$true
+    }
+    if (-not $rejected -or (Get-Content $terminal -Raw)) {
+        throw 'Result table printed unverified or mismatched evidence.'
+    }
+}
+[ordered]@{test='result-table-rejects-unverified-and-mismatched-evidence-before-printing';passed=$true}
 if ($Python) {
     $nested=Join-Path $WorkRoot 'nested'
     Invoke-ComparisonScript (Join-Path $SourceRoot 'scripts\msbuild\Test-BoundedProcess.ps1') @(
