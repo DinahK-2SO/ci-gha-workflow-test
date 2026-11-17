@@ -370,7 +370,7 @@ function Write-ComparisonResults([string]$SummaryPath,$Cases) {
     }
     $culture=[Globalization.CultureInfo]::InvariantCulture
     $rows=[Collections.Generic.List[string[]]]::new()
-    $rows.Add(@('Case','OpenCV','Builder','Build (s)','Pre-build CPU samples (%)','CPU mean (%)','C++','Binding DLL'))
+    $rows.Add(@('Case','OpenCV','Builder','Build (s)','Pre-build CPU samples (%)','PreBld CPU mean (%)','C++','Binding DLL'))
     foreach ($condition in $summary.conditions) {
         $case=@($Cases | Where-Object label -CEQ $condition.label)
         if ($case.Count -ne 1) { throw "Cannot locate unique results for case: $($condition.label)" }
@@ -406,6 +406,7 @@ function Write-ComparisonResults([string]$SummaryPath,$Cases) {
         }
         Write-Host (($cells -join '  ').TrimEnd())
     }
+    Write-Host ''
     Write-Host 'Commits are abbreviated. Each case was built once; timings are diagnostic only.'
     Write-Host 'CPU samples and means describe whole-machine usage before each build, not during it.'
 }

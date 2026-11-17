@@ -7,13 +7,19 @@ param(
     [ValidateSet('https','ssh')][string]$SourceTransport='https',
     [switch]$Check,
     [switch]$PrepareOnly,
-    [switch]$RepoIntegrityChecks
+    [switch]$RepoIntegrityChecks,
+    [Parameter(DontShow)][switch]$NestedInvocation
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $skipIntegrityChecks=-not $RepoIntegrityChecks
+if (-not $NestedInvocation) {
+    Write-Host "Comparison started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')"
+}
+try {
 if ('OpenCvBoundedProcess' -as [type]) {
-    $childArguments=@('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-ConfigPath',$ConfigPath)
+    $childArguments=@('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-ConfigPath',$ConfigPath,
+        '-NestedInvocation')
     foreach ($name in @('WorkParent','CacheRoot','SourceTransport')) {
         $value=Get-Variable -Name $name -ValueOnly
         if ($value) { $childArguments+=@("-$name",$value) }
@@ -45,7 +51,7 @@ if (-not (Test-Path -LiteralPath $payload)) {
     }
     $folder=New-ComparisonBootstrap $PSScriptRoot $ConfigPath $parent $CacheRoot $SourceTransport `
         -SkipIntegrityChecks:$SkipIntegrityChecks
-    $arguments=@('-WorkParent',$parent,'-SourceTransport',$SourceTransport,
+    $arguments=@('-WorkParent',$parent,'-SourceTransport',$SourceTransport,'-NestedInvocation',
         "-RepoIntegrityChecks:$([bool]$RepoIntegrityChecks)")
     if ($CacheRoot) { $arguments+=@('-CacheRoot',$CacheRoot) }
     if ($PrepareOnly) { $arguments+='-PrepareOnly' }
@@ -170,5 +176,10 @@ try {
         $record.finished_at=(Get-Date).ToString('o')
         Write-ComparisonJson $record $summary
         Write-Host "Run status: $($record.status). Summary: $summary"
+    }
+}
+} finally {
+    if (-not $NestedInvocation) {
+        Write-Host "Comparison finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')"
     }
 }

@@ -103,7 +103,11 @@ Detailed case-controller output stays in `prepare.log`, `build.log` and
 `results\validation.log`. Run and final-summary paths are still printed.
 After all cases pass aggregate validation, an aligned English table (without
 grid lines) shows the case, abbreviated OpenCV and builder commits, single-build
-seconds, pre-build CPU samples and mean, C++ checks and binding DLL load result.
+seconds, pre-build CPU samples and `PreBld CPU mean (%)`, C++ checks and binding DLL load result.
+An empty line separates the table from its explanatory notes. The launcher
+prints local start and finish timestamps, including the UTC offset, once per
+invocation across bootstrap and fresh-process handoffs. The finish timestamp
+also appears on failure when PowerShell can execute cleanup.
 Values come from that run's verified results and archived execution records,
 not the current editable configuration. CPU readings describe whole-machine
 usage before each build, not average usage during the build.

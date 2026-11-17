@@ -176,14 +176,16 @@ try {
     [Globalization.CultureInfo]::CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo('fr-FR')
     $output=Write-ComparisonResults $tableSummary @($tableCases[1],$tableCases[0]) 6> $terminal
 } finally { [Globalization.CultureInfo]::CurrentCulture=$oldCulture }
-$lines=@(Get-Content $terminal | Where-Object { $_ })
+$rawLines=@(Get-Content $terminal)
+$lines=@($rawLines | Where-Object { $_ })
 if ($null -ne $output -or $lines.Count -ne 5 -or
-    $lines[0] -notmatch '^Case\s+OpenCV\s+Builder\s+Build \(s\)\s+Pre-build CPU samples \(%\)\s+CPU mean \(%\)\s+C\+\+\s+Binding DLL$' -or
+    $lines[0] -notmatch '^Case\s+OpenCV\s+Builder\s+Build \(s\)\s+Pre-build CPU samples \(%\)\s+PreBld CPU mean \(%\)\s+C\+\+\s+Binding DLL$' -or
     $lines[1] -notmatch '^A\s+aaaaaaa\s+bbbbbbb\s+542\.54\s+14, 7, 13, 12, 3\s+9\.8\s+10/10\s+PASS$' -or
     $lines[2] -notmatch '^case-with-a-long-label\s+aaaaaaa\s+bbbbbbb\s+12\.35\s+0, 10, 20, 30, 40\s+20\.0\s+10/10\s+PASS$' -or
     $lines[1].IndexOf('aaaaaaa') -ne $lines[0].IndexOf('OpenCV') -or
     $lines[2].IndexOf('aaaaaaa') -ne $lines[0].IndexOf('OpenCV') -or
     $lines[1].IndexOf('PASS') -ne $lines[2].IndexOf('PASS') -or
+    $rawLines[4] -cne '' -or $rawLines[5] -notmatch 'built once' -or
     $lines[3] -notmatch 'built once' -or $lines[4] -notmatch 'before each build, not during') {
     throw 'Result table lost alignment, identities, preflight data, English number formatting or timing caveats.'
 }

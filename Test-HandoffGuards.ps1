@@ -338,7 +338,15 @@ function Assert-ComparisonSourceTree($SourceRoot,[switch]$SkipIntegrityChecks) {
 }
 function Resolve-ComparisonCacheRoot { Join-Path $PSScriptRoot 'unused-cache' }
 '@ | Set-Content -LiteralPath (Join-Path $launcherFixture 'BootstrapSupport.psm1')
-& (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check
+$launcherTerminal=Join-Path $launcherFixture 'terminal.txt'
+& (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check 6> $launcherTerminal
+$launcherLines=@(Get-Content -LiteralPath $launcherTerminal)
+if (@($launcherLines -match '^Comparison started: ').Count -ne 1 -or
+    @($launcherLines -match '^Comparison finished: ').Count -ne 1 -or
+    $launcherLines[0] -notmatch '^Comparison started: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}$' -or
+    $launcherLines[-1] -notmatch '^Comparison finished: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}$') {
+    throw 'The launcher did not print exactly one timestamp pair across the fresh-process handoff.'
+}
 if ([int](Get-Content -LiteralPath (Join-Path $launcherFixture 'pid.txt')) -eq $PID) {
     throw 'The launcher reused the parent process containing a previously loaded runtime helper.'
 }
@@ -354,11 +362,17 @@ if ((Get-Content -LiteralPath (Join-Path $launcherFixture 'skip-integrity.txt'))
     throw 'Explicit fast mode was lost at the fresh-process boundary.'
 }
 $rejected=$false
-try { & (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check -ConfigPath 'missing-fixture' 2>$null } catch {
+try { & (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check -ConfigPath 'missing-fixture' 2>$null 6> $launcherTerminal } catch {
     if ($_.Exception.Message -notlike 'Comparison child process failed (exit *') { throw }
     $rejected=$true
 }
 if (-not $rejected) { throw 'A failed isolated launcher was reported as successful.' }
+$launcherLines=@(Get-Content -LiteralPath $launcherTerminal)
+if (@($launcherLines -match '^Comparison started: ').Count -ne 1 -or
+    @($launcherLines -match '^Comparison finished: ').Count -ne 1 -or
+    $launcherLines[-1] -notmatch '^Comparison finished: ') {
+    throw 'The launcher lost or duplicated timestamps when its child failed.'
+}
 $checks += [ordered]@{test='loaded-helper-launcher-isolation-and-child-failure-propagation';passed=$true}
 
 $freeze=Join-Path $PSScriptRoot 'scripts\msbuild\Invoke-CiPilot.ps1'
