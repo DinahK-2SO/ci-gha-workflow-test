@@ -55,8 +55,8 @@
     },
     {
       "path": "msbuild\\Prepare-PythonDevelopment.ps1",
-      "bytes": 4479,
-      "sha256": "912A6CCDB8FC4F49E2E90E9658EFCF640165612BAEDC0B3A944D2A08B3E0BF02"
+      "bytes": 4597,
+      "sha256": "09580E69F07DF35FEAC06AA741A28A261294B2951D76A743BB86C58FDA2C854D"
     },
     {
       "path": "msbuild\\Test-BoundedProcess.ps1",

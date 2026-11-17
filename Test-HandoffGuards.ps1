@@ -31,6 +31,8 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 
 $null=Assert-HandoffPackage $root
 $checks += [ordered]@{test='untampered-package';passed=$true}
 'changed payload' | Set-Content -LiteralPath $payload -Encoding utf8
+$null=Assert-HandoffPackage $root -SkipIntegrityChecks
+$checks += [ordered]@{test='trusted-package-skips-payload-digest-comparison';passed=$true}
 $rejected=$false
 try { $null=Assert-HandoffPackage $root } catch { $rejected=$true; $message=$_.Exception.Message }
 if (-not $rejected) { throw 'A modified package payload was accepted.' }
@@ -41,6 +43,40 @@ $rejected=$false
 try { $null=Assert-HandoffPackage $root } catch { $rejected=$true; $message=$_.Exception.Message }
 if (-not $rejected) { throw 'An unexpected package file was accepted.' }
 $checks += [ordered]@{test='unexpected-file';rejected=$true;error=$message}
+$manifest.schema_version=99
+$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 'package-manifest.json') -Encoding utf8
+$rejected=$false
+try { $null=Assert-HandoffPackage $root -SkipIntegrityChecks } catch {
+    if ($_.Exception.Message -cne 'Unsupported handoff package manifest.') { throw }
+    $rejected=$true
+}
+if (-not $rejected) { throw 'Trusted-input mode accepted an unsupported package schema.' }
+$manifest.schema_version=1
+$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 'package-manifest.json') -Encoding utf8
+$checks += [ordered]@{test='trusted-package-retains-schema-check';passed=$true}
+$checks += @(& (Get-Module BootstrapSupport) {
+    param($Root)
+    $cache=Join-Path $Root 'trusted-dependency-cache'
+    $entry=[pscustomobject]@{filename='fixture.zip';algorithm='SHA256';hash=('0'*64)}
+    $directory=Join-Path $cache "sha256\$($entry.hash)"
+    New-Item -ItemType Directory -Path $directory | Out-Null
+    'trusted cached bytes' | Set-Content -LiteralPath (Join-Path $directory $entry.filename)
+    $trusted=Join-Path $Root 'trusted-dependency'
+    $strict=Join-Path $Root 'strict-dependency'
+    New-Item -ItemType Directory -Path $trusted,$strict | Out-Null
+    $result=Receive-ComparisonDependency $entry $trusted $cache '' -SkipIntegrityChecks
+    if ($result.cache_status -cne 'hit' -or
+        (Get-Content -LiteralPath $result.path -Raw).Trim() -cne 'trusted cached bytes') {
+        throw 'Trusted dependency cache hit was not copied unchanged.'
+    }
+    $rejected=$false
+    try { $null=Receive-ComparisonDependency $entry $strict $cache '' -SkipIntegrityChecks:$false } catch {
+        if ($_.Exception.Message -notlike 'Cached dependency checksum mismatch:*') { throw }
+        $rejected=$true
+    }
+    if (-not $rejected) { throw 'Explicit strict mode did not restore cached dependency checks.' }
+    [ordered]@{test='trusted-dependency-hit-and-explicit-strict-rejection';passed=$true}
+} $root)
 $profile=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'profile.json') -Raw | ConvertFrom-Json
 $identity=[ordered]@{
     profile_id=$profile.profile_id
@@ -297,12 +333,25 @@ function Read-ComparisonConfig($Path) {
 function Resolve-ComparisonWorkParent { Join-Path $PSScriptRoot 'unused-work' }
 '@ | Set-Content -LiteralPath (Join-Path $launcherFixture 'ComparisonSupport.psm1')
 @'
-function Assert-ComparisonSourceTree {}
+function Assert-ComparisonSourceTree($SourceRoot,[switch]$SkipIntegrityChecks) {
+    Set-Content -LiteralPath (Join-Path $PSScriptRoot 'skip-integrity.txt') -Value ([bool]$SkipIntegrityChecks)
+}
 function Resolve-ComparisonCacheRoot { Join-Path $PSScriptRoot 'unused-cache' }
 '@ | Set-Content -LiteralPath (Join-Path $launcherFixture 'BootstrapSupport.psm1')
 & (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check
 if ([int](Get-Content -LiteralPath (Join-Path $launcherFixture 'pid.txt')) -eq $PID) {
     throw 'The launcher reused the parent process containing a previously loaded runtime helper.'
+}
+if ((Get-Content -LiteralPath (Join-Path $launcherFixture 'skip-integrity.txt')).Trim() -cne 'True') {
+    throw 'The default fast-mode switch was not forwarded through the fresh process.'
+}
+& (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check -RepoIntegrityChecks:$true
+if ((Get-Content -LiteralPath (Join-Path $launcherFixture 'skip-integrity.txt')).Trim() -cne 'False') {
+    throw 'Explicit strict mode was lost at the fresh-process boundary.'
+}
+& (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check -RepoIntegrityChecks:$false
+if ((Get-Content -LiteralPath (Join-Path $launcherFixture 'skip-integrity.txt')).Trim() -cne 'True') {
+    throw 'Explicit fast mode was lost at the fresh-process boundary.'
 }
 $rejected=$false
 try { & (Join-Path $launcherFixture 'Run-Comparison.ps1') -Check -ConfigPath 'missing-fixture' 2>$null } catch {

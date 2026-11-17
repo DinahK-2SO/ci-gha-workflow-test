@@ -171,7 +171,8 @@ function Get-ComparisonGitRevision([string]$Bare,[string]$Revision,[string]$Dire
 function Get-ComparisonCachedGitSource(
         [string]$Repository,[string]$BranchName,[string]$Commit,[string]$CacheRoot,
         [ValidateSet('https','ssh')][string]$SourceTransport='https',
-        [string]$Destination,[string]$Reference,[string]$LogRoot,[int]$TimeoutSeconds=1800) {
+        [string]$Destination,[string]$Reference,[string]$LogRoot,[int]$TimeoutSeconds=1800,
+        [switch]$SkipIntegrityChecks) {
     if ($Repository -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
         @($Repository.Split('/') | Where-Object { $_ -in @('.','..') }).Count) {
         throw 'A Git source cache requires an owner/name repository.'
@@ -213,7 +214,9 @@ function Get-ComparisonCachedGitSource(
             (Test-Path -LiteralPath (Join-Path $bare 'objects\info\alternates'))) {
             throw "Git source cache must be a complete independent bare repository: $bare"
         }
-        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fsck','--full','--no-dangling') $TimeoutSeconds
+        if (-not $SkipIntegrityChecks) {
+            $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fsck','--full','--no-dangling') $TimeoutSeconds
+        }
         # Encode branch names so Windows filename rules and case folding cannot alias refs.
         $branchKey=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
             [Text.Encoding]::UTF8.GetBytes($BranchName))).ToLowerInvariant()
@@ -241,10 +244,11 @@ function Get-ComparisonCachedGitSource(
             throw "The selected SHA does not identify the requested commit: $Repository@$Commit"
         }
         $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'update-ref',"refs/cache/commits/$selected",$selected)
-        if ($status -eq 'fetched') {
+        if ($status -eq 'fetched' -and -not $SkipIntegrityChecks) {
             $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$bare",'fsck','--full','--no-dangling',$selected) $TimeoutSeconds
         }
-        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$Destination",'-c','fetch.fsckObjects=true',
+        $fsckObjects=([bool](-not $SkipIntegrityChecks)).ToString().ToLowerInvariant()
+        $null=Invoke-ComparisonGit $directory $LogRoot @("--git-dir=$Destination",'-c',"fetch.fsckObjects=$fsckObjects",
             'fetch','--quiet','--no-tags','--no-auto-maintenance',$bare,"+$($selected):$Reference") $TimeoutSeconds
         return [pscustomobject]@{
             repository=$Repository;branch_name=$BranchName;commit=$selected
@@ -253,7 +257,8 @@ function Get-ComparisonCachedGitSource(
     } finally { $guard.Dispose() }
 }
 
-function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch]$WithoutSeed) {
+function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch]$WithoutSeed,
+        [switch]$SkipIntegrityChecks) {
     $script:gitSequence=0
     $logs=Join-Path $RunRoot 'source-logs'
     New-Item -ItemType Directory -Path $logs | Out-Null
@@ -289,7 +294,8 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
                 if (-not $resolved.ContainsKey($key)) {
                     $source=Get-ComparisonCachedGitSource -Repository $repository -BranchName $branchName `
                         -Commit $commit -CacheRoot $cacheRoot -SourceTransport $Config.source_transport `
-                        -Destination $bare -Reference $ref -LogRoot $logs -TimeoutSeconds $timeout
+                        -Destination $bare -Reference $ref -LogRoot $logs -TimeoutSeconds $timeout `
+                        -SkipIntegrityChecks:$SkipIntegrityChecks
                     $resolved[$key]=$source
                     $cacheRecords.Add($source)
                     Write-ComparisonJson @($cacheRecords.ToArray()) (Join-Path $RunRoot 'source-cache.json')
@@ -304,11 +310,14 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
             $refs+=$ref
         }
         $newBundle=Join-Path $RunRoot "selected-$kind.bundle"
-        Invoke-ComparisonStage "[Sources] Bundle and verify $name for $($Config.cases.label -join '/')" {
+        $bundleAction=if ($SkipIntegrityChecks) { 'Bundle' } else { 'Bundle and verify' }
+        Invoke-ComparisonStage "[Sources] $bundleAction $name for $($Config.cases.label -join '/')" {
             $null=Invoke-ComparisonGit $RunRoot $logs (@("--git-dir=$bare",'bundle','create','--version=2',$newBundle)+$refs) $timeout
-            $empty=Join-Path $RunRoot "$kind-bundle-verify.git"
-            $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
-            $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle) $timeout
+            if (-not $SkipIntegrityChecks) {
+                $empty=Join-Path $RunRoot "$kind-bundle-verify.git"
+                $null=Invoke-ComparisonGit $RunRoot $logs @('init','--quiet','--bare',$empty)
+                $null=Invoke-ComparisonGit $RunRoot $logs @("--git-dir=$empty",'bundle','verify',$newBundle) $timeout
+            }
             Copy-Item -LiteralPath $newBundle -Destination $bundle
         } $logs
     }
@@ -317,13 +326,14 @@ function New-ComparisonSources($Config,[string]$Package,[string]$RunRoot,[switch
         branch_is_provenance_not_a_floating_execution_target=$true
         branch_heads_are_cached_snapshots_not_live_checks=$true
     }) (Join-Path $Package 'sources\provenance.json')
-    Invoke-ComparisonStage '[Sources] Verify selected source package' {
-        Set-ComparisonCaseProfile $Package $entries[0]
+    $packageAction=if ($SkipIntegrityChecks) { 'Record selected source package' } else { 'Verify selected source package' }
+    Invoke-ComparisonStage "[Sources] $packageAction" {
+        Set-ComparisonCaseProfile $Package $entries[0] -SkipIntegrityChecks:$SkipIntegrityChecks
     } $logs
     return $entries
 }
 
-function Set-ComparisonCaseProfile([string]$Package,$Selection) {
+function Set-ComparisonCaseProfile([string]$Package,$Selection,[switch]$SkipIntegrityChecks) {
     $profile=Get-Content -LiteralPath (Join-Path $Package 'profile.json') -Raw | ConvertFrom-Json
     $profile.opencv=$Selection.opencv
     $profile.ci_baseline=$Selection.ci
@@ -341,15 +351,15 @@ function Set-ComparisonCaseProfile([string]$Package,$Selection) {
     $manifest.created_at=(Get-Date).ToString('o')
     $manifest.files=@(Get-PackageInventory $Package)
     Write-ComparisonJson $manifest $manifestPath
-    $null=Assert-HandoffPackage $Package
+    $null=Assert-HandoffPackage $Package -SkipIntegrityChecks:$SkipIntegrityChecks
     Assert-HandoffProfile $profile $manifest
 }
 
-function New-ComparisonCasePackage([string]$Package,$Selection,[string]$Destination) {
+function New-ComparisonCasePackage([string]$Package,$Selection,[string]$Destination,[switch]$SkipIntegrityChecks) {
     if (Test-Path -LiteralPath $Destination) { throw 'Preserve the existing case package.' }
     Copy-Item -LiteralPath $Package -Destination $Destination -Recurse
-    $null=Assert-HandoffPackage $Destination
-    Set-ComparisonCaseProfile $Destination $Selection
+    $null=Assert-HandoffPackage $Destination -SkipIntegrityChecks:$SkipIntegrityChecks
+    Set-ComparisonCaseProfile $Destination $Selection -SkipIntegrityChecks:$SkipIntegrityChecks
 }
 
 function Write-ComparisonResults([string]$SummaryPath,$Cases) {

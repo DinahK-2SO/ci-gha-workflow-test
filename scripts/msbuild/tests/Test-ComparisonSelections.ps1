@@ -148,6 +148,20 @@ try {
         throw 'Seed reuse changed the selected identities.'
     }
     [ordered]@{test='independent-repositories-branches-commits-and-seeded-bundles';passed=$true}
+    $trustedPackage=Join-Path $WorkRoot 'trusted-package'
+    Copy-Item -LiteralPath $package -Destination $trustedPackage -Recurse
+    $trustedRun=Join-Path $WorkRoot 'trusted-run'
+    New-Item -ItemType Directory -Path $trustedRun | Out-Null
+    $trustedEntries=@(New-ComparisonSources $config $trustedPackage $trustedRun -SkipIntegrityChecks)
+    if (($trustedEntries | ConvertTo-Json -Depth 8 -Compress) -cne ($entries | ConvertTo-Json -Depth 8 -Compress) -or
+        (Test-Path -LiteralPath (Join-Path $trustedRun 'opencv-bundle-verify.git')) -or
+        (Test-Path -LiteralPath (Join-Path $trustedRun 'ci-bundle-verify.git'))) {
+        throw 'Trusted preparation changed source selections or still ran explicit bundle verification.'
+    }
+    $trustedCase=Join-Path $WorkRoot 'trusted-case'
+    New-ComparisonCasePackage $trustedPackage $trustedEntries[1] $trustedCase -SkipIntegrityChecks
+    $null=Assert-HandoffPackage $trustedCase
+    [ordered]@{test='trusted-sources-and-case-package-retain-valid-manifests-without-bundle-verification';passed=$true}
     $offlineUri=([Uri]((Join-Path $WorkRoot 'unavailable')+'\')).AbsoluteUri.TrimEnd('/')
     for ($index=0; $index -lt $number; $index++) {
         [Environment]::SetEnvironmentVariable("GIT_CONFIG_KEY_$index","url.$offlineUri.insteadOf",'Process')

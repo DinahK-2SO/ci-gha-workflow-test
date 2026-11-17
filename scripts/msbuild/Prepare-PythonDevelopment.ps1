@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][string]$Destination,
     [Parameter(Mandatory)][string]$Dumpbin,
     [ValidateSet('ARM64','x64')][string]$Architecture = 'ARM64',
-    [Parameter(Mandatory)][string]$OutputPath
+    [Parameter(Mandatory)][string]$OutputPath,
+    [switch]$SkipIntegrityChecks
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +22,7 @@ $pin=if ($platform.architecture -ceq 'ARM64') {
 }
 $expected = [Convert]::ToHexString([Convert]::FromBase64String($pin))
 $hash = (Get-FileHash -LiteralPath $Package -Algorithm SHA512).Hash
-if ($hash -cne $expected) { throw 'Package differs from the official NuGet SHA-512.' }
+if (-not $SkipIntegrityChecks -and $hash -cne $expected) { throw 'Package differs from the official NuGet SHA-512.' }
 $destinationPath = [IO.Path]::GetFullPath($Destination)
 $prefix = $destinationPath.TrimEnd('\') + '\'
 $archive = [IO.Compression.ZipFile]::OpenRead($Package)
@@ -58,6 +59,7 @@ if ($identity.version -notmatch '^3\.13\.14 ') { throw 'Unexpected native Python
 [ordered]@{
     prepared_at=(Get-Date).ToString('o')
     status='native_python_development_ready_numpy_pending'
+    skip_integrity_checks=[bool]$SkipIntegrityChecks
     package=$Package
     architecture=$platform.architecture
     package_source="https://www.nuget.org/api/v2/package/$($platform.python_package)/3.13.14"

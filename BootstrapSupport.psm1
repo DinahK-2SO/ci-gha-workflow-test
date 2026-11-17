@@ -11,7 +11,7 @@ function Get-ComparisonSourceFiles {
     )
 }
 
-function Assert-ComparisonRuntimeSources([string]$SourceRoot) {
+function Assert-ComparisonRuntimeSources([string]$SourceRoot,[switch]$SkipIntegrityChecks) {
     $scriptPaths=@('Get-HostSnapshot.ps1') + @(Get-ComparisonSourceFiles | ForEach-Object {"msbuild\$_"})
     $sources=Get-Content -LiteralPath (Join-Path $SourceRoot 'source-manifest.json') -Raw | ConvertFrom-Json
     if ($sources.schema_version -ne 1 -or
@@ -20,8 +20,12 @@ function Assert-ComparisonRuntimeSources([string]$SourceRoot) {
     }
     foreach ($file in $sources.files) {
         $path=Join-Path $SourceRoot "scripts\$($file.path)"
-        if ((Get-Item -LiteralPath $path).Length -ne $file.bytes -or
-            (Get-FileHash -LiteralPath $path).Hash -cne $file.sha256) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Missing bundled runtime source: $($file.path)"
+        }
+        if (-not $SkipIntegrityChecks -and
+            ((Get-Item -LiteralPath $path).Length -ne $file.bytes -or
+                (Get-FileHash -LiteralPath $path).Hash -cne $file.sha256)) {
             throw "Bundled runtime source integrity check failed: $($file.path). Restore the matching handoff source snapshot."
         }
     }
@@ -37,7 +41,7 @@ function Get-ComparisonDependencyLock($Lock,[string]$Architecture) {
     }
 }
 
-function Assert-ComparisonSourceTree([string]$SourceRoot) {
+function Assert-ComparisonSourceTree([string]$SourceRoot,[switch]$SkipIntegrityChecks) {
     $files=@('Run-Comparison.ps1','ComparisonSupport.psm1','HandoffSupport.psm1',
         'Start-Study.ps1','profile.json','COMPARISON.md','bootstrap-lock.json','expected-workload.json',
         'expected-workload-x64.json','source-manifest.json','scripts\Get-HostSnapshot.ps1') +
@@ -47,7 +51,7 @@ function Assert-ComparisonSourceTree([string]$SourceRoot) {
             throw "Incomplete comparison source folder: $file. Restore the complete handoff folder, including scripts and source-manifest.json; no parent-directory helpers are required."
         }
     }
-    Assert-ComparisonRuntimeSources $SourceRoot
+    Assert-ComparisonRuntimeSources $SourceRoot -SkipIntegrityChecks:$SkipIntegrityChecks
     $lock=Get-Content -LiteralPath (Join-Path $SourceRoot 'bootstrap-lock.json') -Raw | ConvertFrom-Json
     foreach ($architecture in @('ARM64','x64')) {
         $selected=Get-ComparisonDependencyLock $lock $architecture
@@ -122,7 +126,8 @@ function Receive-ComparisonWheel($Entry,[string]$Partial,[string]$Python) {
     [IO.File]::Move($download,$Partial)
 }
 
-function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRoot,[string]$PipPython) {
+function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRoot,[string]$PipPython,
+        [switch]$SkipIntegrityChecks) {
     $expected=if ($Entry.algorithm -eq 'SHA512') {
         [Convert]::ToHexString([Convert]::FromBase64String($Entry.hash_base64))
     } else { $Entry.hash }
@@ -164,14 +169,16 @@ function Receive-ComparisonDependency($Entry,[string]$Directory,[string]$CacheRo
         $null=Assert-LocalStudyPath $cached ''
         $archiveStream=[IO.File]::Open($cached,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
         try {
-            if ((Get-FileHash -InputStream $archiveStream -Algorithm $Entry.algorithm).Hash -ine $expected) {
+            if (-not $SkipIntegrityChecks -and
+                (Get-FileHash -InputStream $archiveStream -Algorithm $Entry.algorithm).Hash -ine $expected) {
                 throw "Cached dependency checksum mismatch: $cached. No redownload or overwrite attempted; explicitly repair or remove this entry before retrying."
             }
             $archiveStream.Position=0
             $destinationStream=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
             try { $archiveStream.CopyTo($destinationStream) } finally { $destinationStream.Dispose() }
         } finally { $archiveStream.Dispose() }
-        Write-Host "Verified dependency cache $status`: $($Entry.filename)"
+        $verification=if ($SkipIntegrityChecks) { 'Trusted' } else { 'Verified' }
+        Write-Host "$verification dependency cache $status`: $($Entry.filename)"
         return [pscustomobject]@{path=$path;cache_path=$cached;cache_status=$status;algorithm=$Entry.algorithm;expected_hash=$expected}
     } finally { $guard.Dispose() }
 }
@@ -193,8 +200,8 @@ function Expand-ComparisonDependency([string]$Archive,[string]$Destination) {
 }
 
 function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string]$WorkParent,
-        [string]$CacheRoot,[string]$SourceTransport='https') {
-    Assert-ComparisonSourceTree $SourceRoot
+        [string]$CacheRoot,[string]$SourceTransport='https',[switch]$SkipIntegrityChecks) {
+    Assert-ComparisonSourceTree $SourceRoot -SkipIntegrityChecks:$SkipIntegrityChecks
     $config=Read-ComparisonConfig $ConfigPath $WorkParent $CacheRoot $SourceTransport
     $parent=Assert-LocalStudyPath $WorkParent $SourceRoot
     $null=Resolve-ComparisonCacheRoot $config $SourceRoot
@@ -213,6 +220,7 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
     $record=[ordered]@{
         started_at=(Get-Date).ToString('o');status='preparing';root=$root
         architecture=$platform.architecture;installed_tools=$tools
+        skip_integrity_checks=[bool]$SkipIntegrityChecks
         source_root=$SourceRoot;config_sha256=$null;payload_manifest_sha256=$null;cache_root=$null
         downloads=@();current_operation='copy_sources';workloads_executed=$false;system_installation_changed=$false
     }
@@ -220,6 +228,7 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
     try {
         New-Item -ItemType Directory -Path $root | Out-Null
         Write-Host "Clean-checkout bootstrap: $root"
+        Write-Host "Skip input integrity checks: $([bool]$SkipIntegrityChecks). New downloads are still verified before caching."
         $folder=Join-Path $root 'comparison'
         $payload=Join-Path $folder 'payload'
         $downloads=Join-Path $root 'downloads'
@@ -250,7 +259,7 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
             Copy-Item -LiteralPath (Join-Path $SourceRoot "scripts\msbuild\$name") -Destination $target
         }
         Copy-Item -LiteralPath (Join-Path $SourceRoot 'scripts\Get-HostSnapshot.ps1') -Destination (Join-Path $payload 'scripts\Get-HostSnapshot.ps1')
-        Assert-ComparisonRuntimeSources $payload
+        Assert-ComparisonRuntimeSources $payload -SkipIntegrityChecks:$SkipIntegrityChecks
         $sourceLock=Get-Content -LiteralPath (Join-Path $SourceRoot 'bootstrap-lock.json') -Raw | ConvertFrom-Json
         $lock=Get-ComparisonDependencyLock $sourceLock $platform.architecture
         Write-ComparisonJson $lock (Join-Path $payload 'bootstrap-lock.json')
@@ -261,7 +270,8 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
         foreach ($name in @('cmake','python','numpy','yaml')) {
             $record.current_operation="acquire_$name"
             Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
-            $dependency=Receive-ComparisonDependency $lock.$name $downloads $cacheRoot $pipPython
+            $dependency=Receive-ComparisonDependency $lock.$name $downloads $cacheRoot $pipPython `
+                -SkipIntegrityChecks:$SkipIntegrityChecks
             $archives[$name]=$dependency.path
             $usesPip=$lock.$name.PSObject.Properties['source'] -and $lock.$name.source -ceq 'pip'
             $record.downloads+=@{
@@ -326,8 +336,8 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
         } (Join-Path $payload 'package-manifest.json')
         $record.current_operation='fetch_selected_commits'
         Write-ComparisonJson $record (Join-Path $root 'bootstrap.json')
-        $null=New-ComparisonSources $config $payload $root -WithoutSeed
-        $manifest=Assert-HandoffPackage $payload
+        $null=New-ComparisonSources $config $payload $root -WithoutSeed -SkipIntegrityChecks:$SkipIntegrityChecks
+        $manifest=Assert-HandoffPackage $payload -SkipIntegrityChecks:$SkipIntegrityChecks
         Assert-HandoffProfile (Get-Content -LiteralPath (Join-Path $payload 'profile.json') -Raw | ConvertFrom-Json) $manifest
         $record.payload_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $payload 'package-manifest.json')).Hash
         $record.status='bootstrap_ready'

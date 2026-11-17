@@ -3,13 +3,14 @@
 param(
     [ValidateSet('Check','Prepare','RunFunctional')][string]$Action = 'Check',
     [string]$WorkRoot,
-    [switch]$ConfirmLocalExecution
+    [switch]$ConfirmLocalExecution,
+    [switch]$SkipIntegrityChecks
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'HandoffSupport.psm1') -Force
-$manifest=Assert-HandoffPackage $PSScriptRoot
+$manifest=Assert-HandoffPackage $PSScriptRoot -SkipIntegrityChecks:$SkipIntegrityChecks
 $profile=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'profile.json') -Raw | ConvertFrom-Json
 Assert-HandoffProfile $profile $manifest
 $independent=$profile.comparison_axis -ceq 'independent_sources'
@@ -19,6 +20,7 @@ Import-Module (Join-Path $PSScriptRoot 'scripts\msbuild\NativeArchitecture.psm1'
 if ($Action -eq 'Check') {
     [ordered]@{
         status='package_and_installed_toolchain_checked'
+        skip_integrity_checks=[bool]$SkipIntegrityChecks
         profile=$profile.profile_id
         architecture=$platform.architecture
         review_commit=$(if($independent){$profile.ci_baseline.commit}else{$profile.ci_dev.commit})
@@ -55,6 +57,7 @@ if ($Action -eq 'Prepare') {
     $record=[ordered]@{
         started_at=(Get-Date).ToString('o')
         status='preparing'
+        skip_integrity_checks=[bool]$SkipIntegrityChecks
         package_manifest_sha256=$manifestHash
         profile_id=$profile.profile_id
         architecture=$platform.architecture
@@ -69,7 +72,7 @@ if ($Action -eq 'Prepare') {
     try {
         $localPackage=Join-Path $work 'package'
         Copy-Item -LiteralPath $PSScriptRoot -Destination $localPackage -Recurse
-        $null=Assert-HandoffPackage $localPackage
+        $null=Assert-HandoffPackage $localPackage -SkipIntegrityChecks:$SkipIntegrityChecks
         $scripts=Join-Path $localPackage 'scripts\msbuild'
         $prep=Join-Path $work 'preparation'
         New-Item -ItemType Directory -Path $prep,(Join-Path $work 'tools'),(Join-Path $work 'download-cache'),
@@ -102,7 +105,8 @@ if ($Action -eq 'Prepare') {
         & (Join-Path $scripts 'Prepare-PythonDevelopment.ps1') `
             -Package (Join-Path $localPackage "inputs\$($platform.python_package).3.13.14.nupkg") `
             -Destination (Join-Path $work 'tools\python-dev') -Dumpbin $tools.dumpbin `
-            -Architecture $platform.architecture -OutputPath $developmentReceipt
+            -Architecture $platform.architecture -OutputPath $developmentReceipt `
+            -SkipIntegrityChecks:$SkipIntegrityChecks
         $development=Get-Content -LiteralPath $developmentReceipt -Raw | ConvertFrom-Json
         $python=$development.identity.executable
         $pythonRoot=Split-Path $python
@@ -222,7 +226,7 @@ if ($prepared.status -ne 'prepared_for_functional_pair' -or
     $prepared.package_manifest_sha256 -cne $manifestHash -or $prepared.root -cne $work) {
     throw 'The prepared work root does not match this immutable package.'
 }
-$null=Assert-HandoffPackage $prepared.local_package
+$null=Assert-HandoffPackage $prepared.local_package -SkipIntegrityChecks:$SkipIntegrityChecks
 $scripts=Join-Path $prepared.local_package 'scripts\msbuild'
 $protocol=Get-Content -LiteralPath $prepared.protocol -Raw | ConvertFrom-Json
 if ($protocol.comparison_axis -cne $profile.comparison_axis -or

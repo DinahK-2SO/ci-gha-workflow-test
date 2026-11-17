@@ -6,10 +6,12 @@ param(
     [string]$CacheRoot,
     [ValidateSet('https','ssh')][string]$SourceTransport='https',
     [switch]$Check,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [switch]$RepoIntegrityChecks
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+$skipIntegrityChecks=-not $RepoIntegrityChecks
 if ('OpenCvBoundedProcess' -as [type]) {
     $childArguments=@('-NoLogo','-NoProfile','-NonInteractive','-File',$PSCommandPath,'-ConfigPath',$ConfigPath)
     foreach ($name in @('WorkParent','CacheRoot','SourceTransport')) {
@@ -18,6 +20,7 @@ if ('OpenCvBoundedProcess' -as [type]) {
     }
     if ($Check) { $childArguments+='-Check' }
     if ($PrepareOnly) { $childArguments+='-PrepareOnly' }
+    $childArguments+="-RepoIntegrityChecks:$([bool]$RepoIntegrityChecks)"
     Write-Host 'Starting a fresh PowerShell process to avoid reusing an already loaded runtime helper.'
     & ([Environment]::ProcessPath) @childArguments
     if ($LASTEXITCODE -ne 0) { throw "Comparison child process failed (exit $LASTEXITCODE). See the reported receipt/log paths." }
@@ -31,17 +34,19 @@ if (-not (Test-Path -LiteralPath $payload)) {
         }
         Import-Module (Join-Path $PSScriptRoot $name) -Force
     }
-    Assert-ComparisonSourceTree $PSScriptRoot
+    Assert-ComparisonSourceTree $PSScriptRoot -SkipIntegrityChecks:$SkipIntegrityChecks
     $config=Read-ComparisonConfig $ConfigPath $WorkParent $CacheRoot $SourceTransport
     $parent=Resolve-ComparisonWorkParent $config $PSScriptRoot
     $tools=Find-HandoffToolchain
     if ($Check) {
         $cacheRoot=Resolve-ComparisonCacheRoot $config $PSScriptRoot
-        Write-Output "Validated source inputs/config/toolchain only for native $($tools.architecture) (PowerShell process: $($tools.process_architecture)). Payload is absent; normal invocation will verify/reuse cached dependencies, download missing archives and retrieve exact sources. Cache: $cacheRoot. Cache contents/network access are not checked; no downloads or builds started."
+        Write-Output "Validated source inputs/config/toolchain only for native $($tools.architecture) (PowerShell process: $($tools.process_architecture); skip_integrity_checks=$([bool]$SkipIntegrityChecks)). Payload is absent; normal invocation will reuse cached dependencies, download missing archives and retrieve exact sources. Cache: $cacheRoot. Cache contents/network access are not checked; no downloads or builds started."
         return
     }
-    $folder=New-ComparisonBootstrap $PSScriptRoot $ConfigPath $parent $CacheRoot $SourceTransport
-    $arguments=@('-WorkParent',$parent,'-SourceTransport',$SourceTransport)
+    $folder=New-ComparisonBootstrap $PSScriptRoot $ConfigPath $parent $CacheRoot $SourceTransport `
+        -SkipIntegrityChecks:$SkipIntegrityChecks
+    $arguments=@('-WorkParent',$parent,'-SourceTransport',$SourceTransport,
+        "-RepoIntegrityChecks:$([bool]$RepoIntegrityChecks)")
     if ($CacheRoot) { $arguments+=@('-CacheRoot',$CacheRoot) }
     if ($PrepareOnly) { $arguments+='-PrepareOnly' }
     Invoke-ComparisonScript (Join-Path $folder 'Run-Comparison.ps1') $arguments
@@ -53,11 +58,12 @@ foreach ($name in @('HandoffSupport.psm1','package-manifest.json','comparison-la
     }
 }
 Import-Module (Join-Path $payload 'HandoffSupport.psm1') -Force
-$manifest=Assert-HandoffPackage $payload
+$manifest=Assert-HandoffPackage $payload -SkipIntegrityChecks:$SkipIntegrityChecks
 $launchers=Get-Content -LiteralPath (Join-Path $payload 'comparison-launchers.json') -Raw | ConvertFrom-Json
 foreach ($file in $launchers) {
     if ($file.name -cnotin @('Run-Comparison.ps1','ComparisonSupport.psm1') -or
-        (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $file.name)).Hash -cne $file.sha256) {
+        (-not $SkipIntegrityChecks -and
+            (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $file.name)).Hash -cne $file.sha256)) {
         throw 'Comparison launcher differs from the frozen payload.'
     }
 }
@@ -68,7 +74,7 @@ $profile=Get-Content -LiteralPath (Join-Path $payload 'profile.json') -Raw | Con
 Assert-HandoffProfile $profile $manifest
 $tools=Find-HandoffToolchain -Architecture $profile.architecture
 if ($Check) {
-    Write-Output "Validated config/payload/toolchain. $($config.cases.Count) independent source cases; no work started."
+    Write-Output "Validated config/payload/toolchain (skip_integrity_checks=$([bool]$SkipIntegrityChecks)). $($config.cases.Count) independent source cases; no work started."
     return
 }
 New-Item -ItemType Directory -Path $parent -Force | Out-Null
@@ -82,6 +88,7 @@ $record=[ordered]@{
     seed_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $payload 'package-manifest.json')).Hash
     build_budget_seconds=1800*$config.cases.Count; consumed_outer_build_seconds=0
     source_transport=$config.source_transport
+    skip_integrity_checks=[bool]$SkipIntegrityChecks
     performance_eligible=$false; timing_use='diagnostic_only'; automatic_retries=$false
     detailed_interference_capture='Not enabled; the earlier ABC observer gaps are not repaired by this launcher.'
     cases=@($config.cases | ForEach-Object {
@@ -97,14 +104,19 @@ try {
     $record.config_sha256=(Get-FileHash -LiteralPath $frozenConfig).Hash
     Write-ComparisonJson $record $summary
     Write-Output "Comparison run: $root"
+    Write-Host "Repository integrity checks: $([bool]$RepoIntegrityChecks). Build correctness and result validation remain enabled."
     $env:GIT_TERMINAL_PROMPT='0'
     $package=Join-Path $root 'package'
-    Invoke-ComparisonStage '[Setup] Copy and verify run package' {
+    Invoke-ComparisonStage '[Setup] Copy run package' {
         Copy-Item -LiteralPath $payload -Destination $package -Recurse
-        $null=Assert-HandoffPackage $package
     } $summary
+    if (-not $SkipIntegrityChecks) {
+        Invoke-ComparisonStage '[Setup] Verify run package' {
+            $null=Assert-HandoffPackage $package
+        } $summary
+    }
     Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $package 'scripts\msbuild\BoundedProcess.cs') -Raw)
-    $entries=@(New-ComparisonSources $config $package $root)
+    $entries=@(New-ComparisonSources $config $package $root -SkipIntegrityChecks:$SkipIntegrityChecks)
     $results=Join-Path $root 'results'
     New-Item -ItemType Directory -Path $results | Out-Null
     for ($index=0; $index -lt $entries.Count; $index++) {
@@ -115,11 +127,12 @@ try {
         $casePackage=Join-Path $caseRoot 'package'
         $stage="[$label $($index+1)/$($entries.Count)]"
         Invoke-ComparisonStage "$stage Prepare isolated package" {
-            New-ComparisonCasePackage $package $entry $casePackage
+            New-ComparisonCasePackage $package $entry $casePackage -SkipIntegrityChecks:$SkipIntegrityChecks
         } $summary
         $study=Join-Path $root "s$($index+1)"
         Invoke-ComparisonScript (Join-Path $casePackage 'Start-Study.ps1') @(
-            '-Action','Prepare','-WorkRoot',$study,'-ConfirmLocalExecution') `
+            '-Action','Prepare','-WorkRoot',$study,'-ConfirmLocalExecution',
+            "-SkipIntegrityChecks:$([bool]$SkipIntegrityChecks)") `
             "$stage Restore sources and configure build" (Join-Path $caseRoot 'prepare.log')
         $prepared=Get-Content -LiteralPath (Join-Path $study 'preparation.json') -Raw | ConvertFrom-Json
         $scripts=Join-Path $prepared.local_package 'scripts\msbuild'

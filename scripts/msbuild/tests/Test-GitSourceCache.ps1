@@ -23,14 +23,16 @@ function Add-FixtureCommit([string]$Repository,[string]$Value) {
         '-c','commit.gpgsign=false','-c','core.hooksPath=NUL','commit','--quiet','-m',$Value)
     Invoke-FixtureGit @('-C',$Repository,'rev-parse','HEAD')
 }
-function Get-FixtureSource([string]$Name,[string]$Branch,[string]$Commit,[string]$Repository='fixture/source') {
+function Get-FixtureSource([string]$Name,[string]$Branch,[string]$Commit,[string]$Repository='fixture/source',
+        [switch]$SkipIntegrityChecks) {
     $run=Join-Path $WorkRoot $Name
     New-Item -ItemType Directory -Path $run | Out-Null
     $destination=Join-Path $run 'source.git'
     $null=Invoke-FixtureGit @('init','--bare','--quiet',$destination)
     $source=Get-ComparisonCachedGitSource -Repository $Repository -BranchName $Branch -Commit $Commit `
         -CacheRoot (Join-Path $WorkRoot 'cache') -SourceTransport https `
-        -Destination $destination -Reference 'refs/heads/selected' -LogRoot $run
+        -Destination $destination -Reference 'refs/heads/selected' -LogRoot $run `
+        -SkipIntegrityChecks:$SkipIntegrityChecks
     $actual=Invoke-FixtureGit @("--git-dir=$destination",'rev-parse','refs/heads/selected')
     if ($actual -cne $source.commit -or ($Commit -and $actual -cne $Commit) -or
         (Test-Path (Join-Path $destination 'objects\info\alternates'))) {
@@ -78,6 +80,24 @@ try {
     }
     [ordered]@{test='git-cache-offline-commit-and-branch-hits-produce-independent-bundles';passed=$true}
 
+    $badObject=Join-Path $cold.cache_path ('objects\ab\'+('c'*38))
+    if (Test-Path -LiteralPath $badObject) { throw 'Unexpected existing corrupt-object fixture path.' }
+    New-Item -ItemType Directory -Path (Split-Path $badObject) -Force | Out-Null
+    'not a Git object' | Set-Content -LiteralPath $badObject
+    try {
+        $trusted=Get-FixtureSource 'trusted-offline-hit' 'main' $first -SkipIntegrityChecks
+        if ($trusted.cache_status -cne 'hit' -or $trusted.commit -cne $first) {
+            throw 'Trusted cache reuse lost the exact source identity.'
+        }
+        $rejected=$false
+        try { $null=Get-FixtureSource 'strict-unused-corruption' 'main' $first -SkipIntegrityChecks:$false } catch {
+            if ($_.Exception.Message -notlike 'Git operation failed*') { throw }
+            $rejected=$true
+        }
+        if (-not $rejected) { throw 'Explicit strict mode did not restore full Git object checking.' }
+    } finally { Remove-Item -LiteralPath $badObject -Force }
+    [ordered]@{test='trusted-git-hit-skips-full-scan-and-strict-mode-restores-it';passed=$true}
+
     $env:GIT_CONFIG_KEY_0="url.$uri.insteadOf"
     $second=Add-FixtureCommit $remote 'second'
     $updated=Get-FixtureSource 'new-commit' 'main' $second
@@ -109,7 +129,7 @@ try {
 
     $null=Invoke-FixtureGit @("--git-dir=$($cold.cache_path)",'config','remote.origin.url','https://github.com/fixture/wrong.git')
     $rejected=$false
-    try { $null=Get-FixtureSource 'wrong-origin' 'main' $first } catch {
+    try { $null=Get-FixtureSource 'wrong-origin' 'main' $first -SkipIntegrityChecks } catch {
         if ($_.Exception.Message -notlike 'Git source cache origin differs:*') { throw }
         $rejected=$true
     } finally {

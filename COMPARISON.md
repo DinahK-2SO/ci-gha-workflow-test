@@ -52,6 +52,35 @@ rewritten in the seed. Every case has independent checkouts, configuration,
 build tree and results, even when two cases select the same commits.
 Preparation/download time is not measured native build time.
 
+### Trusted-input fast mode (default)
+
+`Run-Comparison.ps1` defaults to `-RepoIntegrityChecks:$false`. This assumes
+the source folder, assembled payload and dependency/Git caches are trusted and
+are not edited outside the cache's normal Git fetch/update operations.
+It skips repeated runtime-source and launcher digest comparisons, package
+inventory/digest verification, cached dependency checksum comparisons,
+Git `fsck --full`, local-fetch object checking and explicit `git bundle verify`.
+This applies after Git cache updates as well as on cache hits. New dependency
+downloads are still checked against their pinned digest before cache publication.
+Git's own required decoding/connectivity checks are not disabled.
+
+Restore the original integrity checks with:
+
+```powershell
+.\Run-Comparison.ps1 -RepoIntegrityChecks:$true
+```
+
+The setting is forwarded through the fresh-process launcher, bootstrap and
+per-case preparation. Receipts record its inverse as `skip_integrity_checks`.
+Standalone `Start-Study.ps1` and support helpers retain strict defaults;
+the comparison launcher explicitly passes its selection.
+Fast mode does not remove copies, extraction, local Git transfers or bundle
+creation. Hashes needed to create manifests and provenance/evidence records
+are still computed. Locks, path/archive safety, config/commit/origin/architecture
+checks, native builds, C++ checks, binding DLL loading and final result
+validation remain enabled. Corruption that only an integrity scan would detect
+may therefore go unnoticed in fast mode.
+
 Cache misses require access to the pinned CMake release, NuGet or configured
 Python package sources. Git access is needed only for a missing repository,
 branch or commit; complete source-cache hits work offline. Existing Git
@@ -147,7 +176,8 @@ identifies each repository. Credentials remain in the existing Git credential
 configuration, not in generated cache URLs.
 
 On a hit, the helper verifies the origin, complete bare-repository layout and
-object integrity with `git fsck --full`, then fetches the selected commit locally into the run's
+object integrity with `git fsck --full` when integrity checks are enabled,
+then fetches the selected commit locally into the run's
 independent repository. No remote request, shared worktree, object alternate
 or build output is used. Branch snapshots are stored under case-sensitive hashed
 refs, and selected commits are pinned so a later branch update cannot discard
@@ -159,12 +189,14 @@ full commit SHAs, even though the helper can also resolve a cached branch.
 
 An exclusive per-repository lock covers verification, updates and local source
 transfer. A busy cache fails explicitly instead of racing another invocation.
-Wrong origins, shallow/shared-object caches and corruption fail without
+Wrong origins and shallow/shared-object caches fail in either mode.
+Corruption detected with integrity checks enabled fails without
 deleting, replacing or silently repairing the cache. Failed transfers retain
 logs and valid prior cached refs; there is no automatic retry or transport
 fallback. Initial large downloads can still fail if the connection drops.
 
-Each run builds and verifies its own standalone bundles, independent checkouts
+Each run builds its own standalone bundles (explicitly verified when integrity
+checks are enabled), independent checkouts
 and build directories. `source-cache.json` records resolved repository IDs,
 paths, branch snapshots and hit/fetch outcomes for that bootstrap or run.
 Deleting a run does not delete the shared cache. Old run-local repositories are
@@ -174,7 +206,7 @@ acquisition.
 ### Dependency cache
 
 Entries are keyed by checksum algorithm, pinned digest and archive filename.
-Each hit is rehashed before use. A corrupt entry causes an explicit error
+With integrity checks enabled, each hit is rehashed before use. A corrupt entry causes an explicit error
 with its path; it is not overwritten, redownloaded, deleted, or replaced by a
 different version. Restore or remove that specific entry explicitly after
 investigating it. Only a missing entry triggers acquisition.

@@ -34,6 +34,13 @@ Studio 2022 C++ tools/SDK installed:
 Dependencies and Git repositories are cached across runs; Python wheels respect local pip sources.
 Each test gets its own checkouts and build tree. `/nr:false` is test-only.
 
+By default, trusted-input mode skips repeated input integrity checks, assuming
+the source/package/cache files are not edited outside normal Git cache updates.
+`RepoIntegrityChecks` defaults to false. Use
+`.\Run-Comparison.ps1 -RepoIntegrityChecks:$true` to enable full checking.
+New dependency downloads, source/architecture identity checks and all build-result
+validation remain checked. Copies and manifest/evidence hashing are not skipped.
+
 ## 3. Read the results
 
 The command prints the run directory, normally under

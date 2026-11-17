@@ -40,12 +40,13 @@ function Get-PackageInventory([string]$Root) {
     })
 }
 
-function Assert-HandoffPackage([string]$Root) {
+function Assert-HandoffPackage([string]$Root,[switch]$SkipIntegrityChecks) {
     $manifestPath = Join-Path $Root 'package-manifest.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.schema_version -ne 1 -or $manifest.package_kind -ne 'local-functional-handoff') {
         throw 'Unsupported handoff package manifest.'
     }
+    if ($SkipIntegrityChecks) { return $manifest }
     $actual = @(Get-PackageInventory $Root)
     $expectedPaths = @($manifest.files.path | Sort-Object)
     if ((@($actual.path | Sort-Object) -join '|') -cne ($expectedPaths -join '|')) {
