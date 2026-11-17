@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "Get-HostSnapshot.ps1",
-      "bytes": 4124,
-      "sha256": "B3EF50EF7ECE0D996DCF4FFFA5102BE3DC3EC4D0231B51B5264738D4D2811B10"
+      "bytes": 4427,
+      "sha256": "98EFE015AA8E13D171A1E6037498881F9B5B75EA4273B2EF77E275A59DC0EE19"
     },
     {
       "path": "msbuild\\BoundedProcess.cs",
@@ -40,8 +40,8 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 21977,
-      "sha256": "656E5504FB4BF9C9871C645C4AB335017FE82638CDC7657F57A5239553130D13"
+      "bytes": 22793,
+      "sha256": "2A7B60E8B2CBB1F303A82E1DF3FEFBE2D1E777289AB49FD4F2F92A8CD74A6745"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",

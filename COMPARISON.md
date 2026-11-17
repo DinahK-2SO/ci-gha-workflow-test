@@ -111,6 +111,15 @@ also appears on failure when PowerShell can execute cleanup.
 Values come from that run's verified results and archived execution records,
 not the current editable configuration. CPU readings describe whole-machine
 usage before each build, not average usage during the build.
+Host guards compare the latest System log Kernel-General event 12 record
+(machine and record ID) to identify the boot session. WMI `LastBootUpTime`
+remains diagnostic only: it can drift with system time adjustments and is
+not an exact boot-identity key. The System log must be readable and retain
+the latest startup event; query failures are explicit, not silently ignored.
+OS version, AC power, battery saver, power scheme and configured AC power mode
+checks remain enforced. A mismatch identifies the field and its expected/actual
+values. Old snapshots without a boot-session ID require a newly prepared study;
+failed results and frozen protocols are not rewritten or automatically retried.
 Controller observation adds no outer deadline or changes to native build timing.
 The full-history OpenCV fetch and bundle creation each have a 30-minute deadline;
 other Git commands retain a five-minute deadline. Git exit codes and timeout

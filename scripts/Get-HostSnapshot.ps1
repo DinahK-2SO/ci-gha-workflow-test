@@ -49,6 +49,11 @@ namespace OpenCvInvestigation {
             NumberOfLogicalProcessors, HypervisorPresent
     $result.os = Get-CimInstance Win32_OperatingSystem |
         Select-Object Caption, Version, BuildNumber, OSArchitecture, LastBootUpTime
+    $boot = Get-WinEvent -FilterHashtable @{
+        LogName='System'; ProviderName='Microsoft-Windows-Kernel-General'; Id=12
+    } -MaxEvents 1 -ErrorAction Stop
+    $result.boot_session_id = "$($boot.MachineName)/System/$($boot.RecordId)"
+    $result.boot_event_time = $boot.TimeCreated.ToString('o')
     $result.os_architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
     $result.process_architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
     $result.powershell_version = $PSVersionTable.PSVersion.ToString()

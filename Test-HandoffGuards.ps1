@@ -149,6 +149,8 @@ $checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-ComparisonSe
     -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'source-selections'))
 $checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-IndependentResults.ps1') `
     -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'independent-results'))
+$checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-HostState.ps1') `
+    -SourceRoot $PSScriptRoot)
 $checks += @(& (Join-Path $PSScriptRoot 'scripts\msbuild\tests\Test-ComparisonProgress.ps1') `
     -SourceRoot $PSScriptRoot -WorkRoot (Join-Path $root 'progress') -Python $PipPython)
 

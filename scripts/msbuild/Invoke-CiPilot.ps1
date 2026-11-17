@@ -195,13 +195,26 @@ function Assert-FrozenInputs {
 }
 
 function Assert-Host($State) {
-    if ($State.status -ne 'success' -or $State.power_status.ACLineStatus -ne 1 -or
-        $State.power_status.SystemStatusFlag -ne 0 -or
-        $State.power_scheme -ne $reference.power_scheme -or
-        $State.user_power_modes.ac_guid -ne $reference.user_power_modes.ac_guid -or
-        $State.os.Version -ne $reference.os.Version -or
-        $State.os.LastBootUpTime -ne $reference.os.LastBootUpTime) {
-        throw 'The frozen host, boot or power state changed.'
+    foreach ($snapshot in @($reference,$State)) {
+        if (-not $snapshot.PSObject.Properties['boot_session_id'] -or
+            $snapshot.boot_session_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($snapshot.boot_session_id)) {
+            throw 'Host snapshot lacks a stable boot-session identity. Prepare a new study with the updated host snapshot helper.'
+        }
+    }
+    $checks=@(
+        @{name='snapshot status';actual=$State.status;expected='success'},
+        @{name='AC power';actual=$State.power_status.ACLineStatus;expected=1},
+        @{name='battery saver';actual=$State.power_status.SystemStatusFlag;expected=0},
+        @{name='power scheme';actual=$State.power_scheme;expected=$reference.power_scheme},
+        @{name='AC power mode';actual=$State.user_power_modes.ac_guid;expected=$reference.user_power_modes.ac_guid},
+        @{name='OS version';actual=$State.os.Version;expected=$reference.os.Version},
+        @{name='boot session';actual=$State.boot_session_id;expected=$reference.boot_session_id}
+    )
+    foreach ($check in $checks) {
+        if ($check.actual -ne $check.expected) {
+            throw "The frozen host, boot or power state changed: $($check.name) (expected '$($check.expected)', actual '$($check.actual)')."
+        }
     }
 }
 
