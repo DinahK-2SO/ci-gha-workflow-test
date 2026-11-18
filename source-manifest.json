@@ -40,8 +40,8 @@
     },
     {
       "path": "msbuild\\Invoke-CiPilot.ps1",
-      "bytes": 22793,
-      "sha256": "2A7B60E8B2CBB1F303A82E1DF3FEFBE2D1E777289AB49FD4F2F92A8CD74A6745"
+      "bytes": 23244,
+      "sha256": "B222BF9906732160C37CD5E19D83A83CD1FE103DF48A7D4FD2FD20035E10C069"
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",

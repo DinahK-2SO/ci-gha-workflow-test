@@ -77,6 +77,13 @@ if ($Action -eq 'Freeze') {
             $files += [ordered]@{path=$file.FullName; sha256=(Get-FileHash -LiteralPath $file.FullName).Hash}
         }
     }
+    $poseProject = if ($configuration.workload_check.projects -ccontains 'opencv_test_geometry') {
+        'opencv_test_geometry'
+    } elseif ($configuration.workload_check.projects -ccontains 'opencv_test_calib3d') {
+        'opencv_test_calib3d'
+    } else {
+        throw 'Calib3d_SolvePnP.accuracy requires the geometry or calib3d test project.'
+    }
     New-Item -ItemType Directory -Path (Split-Path $ProtocolPath) -Force | Out-Null
     [ordered]@{
         frozen_at=(Get-Date).ToString('o')
@@ -118,7 +125,11 @@ if ($Action -eq 'Freeze') {
             [ordered]@{
                 binary='opencv_test_core.exe'
                 tests=@('Core_Mat.reshape_ndims_4','Core_Mat.reinterpret_Mat_8UC3_8SC3',
-                    'Core_Mat.copyToConvertTo_Empty','Core_Mat.zeros','Core_Mat.extractChannel_inplace_29568')
+                    'Core_Mat.copyToConvertTo_Empty','Core_Mat.zeros')
+            },
+            [ordered]@{
+                binary="$poseProject.exe"
+                tests=@('Calib3d_SolvePnP.accuracy')
             },
             [ordered]@{
                 binary='opencv_test_imgproc.exe'

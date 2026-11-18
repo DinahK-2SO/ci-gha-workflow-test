@@ -361,7 +361,9 @@ security settings, publish branch or unrelated process is modified.
 
 The selected CI action must expose the supported `configure-and-build`
 build step. OpenCV must support the pinned toolchain/configuration, Python
-bindings and the ten selected C++ checks. Incompatible historical versions
+bindings and the ten selected C++ checks: four matrix checks, five threshold
+checks and `Calib3d_SolvePnP.accuracy`. The pose check runs in the geometry
+test executable on OpenCV 5.x and the calib3d executable on 4.x. Incompatible historical versions
 fail explicitly; changing the commit does not silently skip missing tests.
 
 Optional maintainer diagnostics:
