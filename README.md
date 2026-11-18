@@ -25,10 +25,13 @@ its selected CI action. Branches record provenance; commits select the code.
 ## 2. Run
 
 On Windows ARM64 or x64, with PowerShell 7, Git/Git Bash and matching Visual
-Studio 2022 C++ tools/SDK installed:
+Studio 2022 C++ tools/SDK installed, always pass `-WorkParent` with a short,
+writable local path outside the checkout, such as `C:\ocv`. Longer paths can
+push generated MSBuild intermediate file names past the 259-character limit,
+stopping the run before compilation.
 
 ```powershell
-.\Run-Comparison.ps1
+.\Run-Comparison.ps1 -WorkParent C:\ocv
 ```
 
 Dependencies and Git repositories are cached across runs; Python wheels respect local pip sources.
@@ -37,14 +40,14 @@ Each test gets its own checkouts and build tree. `/nr:false` is test-only.
 By default, trusted-input mode skips repeated input integrity checks, assuming
 the source/package/cache files are not edited outside normal Git cache updates.
 `RepoIntegrityChecks` defaults to false. Use
-`.\Run-Comparison.ps1 -RepoIntegrityChecks:$true` to enable full checking.
+`.\Run-Comparison.ps1 -WorkParent C:\ocv -RepoIntegrityChecks:$true` to enable full checking.
 New dependency downloads, source/architecture identity checks and all build-result
 validation remain checked. Copies and manifest/evidence hashing are not skipped.
 
 ## 3. Read the results
 
-The command prints the run directory, normally under
-`$env:LOCALAPPDATA\opencv-build-test\runs`.
+The command prints the run directory under the specified `-WorkParent`
+(for example, `C:\ocv\run-<id>`).
 `summary.json` records progress/errors; `results\functional-summary.json`
 contains verified results after all tests pass, shaped like this
 (placeholders, not measurements):
