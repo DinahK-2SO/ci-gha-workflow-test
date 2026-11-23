@@ -159,7 +159,9 @@ New-Item -ItemType Directory -Path $buildPaths | Out-Null
 '' | Set-Content -LiteralPath (Join-Path $buildPaths 'short.vcxproj')
 $pathCheck=Assert-NativeBuildPaths $buildPaths
 if ($pathCheck.length -ge 260) { throw 'The short MSBuild fixture unexpectedly exceeds the path limit.' }
-$longName=('project' * 13)+'.vcxproj'
+# The guard checks a path containing the project stem twice. Exceed the
+# threshold even when the caller deliberately uses a very short work root.
+$longName=('p' * 128)+'.vcxproj'
 '' | Set-Content -LiteralPath (Join-Path $buildPaths $longName)
 $rejected=$false
 try { $null=Assert-NativeBuildPaths $buildPaths } catch {
@@ -396,6 +398,7 @@ $python=Join-Path $pythonRoot 'python.exe'
 $configurationPath=Join-Path $root 'configuration.json'
 Write-ComparisonJson @{
     status='configured_full_base_workload_pending_pilots';architecture='ARM64'
+    workload_check=@{projects=@('opencv_test_calib3d')}
     dependency_files=@(@{path=$python;sha256=(Get-FileHash $python).Hash})
 } $configurationPath
 $hostPath=Join-Path $root 'host.json'
