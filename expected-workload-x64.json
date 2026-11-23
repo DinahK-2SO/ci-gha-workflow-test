@@ -2,7 +2,7 @@
   "source_commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
   "inventory_policy": "Freeze the first x64 configuration for every selected commit; do not compare its ISA-specific project count with ARM64.",
   "required_options": {
-    "CMAKE_GENERATOR": "Visual Studio 17 2022",
+    "CMAKE_GENERATOR": "Visual Studio 16 2019",
     "CMAKE_GENERATOR_PLATFORM": "x64",
     "CMAKE_BUILD_TYPE": "Release",
     "CL_Z_OPTION": "/Z7",

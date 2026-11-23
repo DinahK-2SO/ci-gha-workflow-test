@@ -8,6 +8,7 @@ function Get-NativeBuildPlatform([string]$Architecture = [Runtime.InteropService
                 architecture='ARM64'; machine='0xaa64'; machine_value=0xaa64
                 compiler_subdirectory='Hostarm64\arm64'; msbuild_subdirectory='arm64'
                 python_package='pythonarm64'; python_tag='win_arm64'
+                generator='Visual Studio 17 2022'; vs_version_range='[17.0,18.0)'
                 workload_file='expected-workload.json'
             }
         }
@@ -16,6 +17,7 @@ function Get-NativeBuildPlatform([string]$Architecture = [Runtime.InteropService
                 architecture='x64'; machine='0x8664'; machine_value=0x8664
                 compiler_subdirectory='Hostx64\x64'; msbuild_subdirectory='amd64'
                 python_package='python'; python_tag='win_amd64'
+                generator='Visual Studio 16 2019'; vs_version_range='[16.0,17.0)'
                 workload_file='expected-workload-x64.json'
             }
         }

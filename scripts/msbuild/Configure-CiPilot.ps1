@@ -120,10 +120,10 @@ import sys
 sys.path.insert(0, sys.argv[1])
 from ci_action_trial import check_native_python, check_configured_workload, read_cmake_cache, independent_workload, read_source_version
 old, new = (Path(value) for value in sys.argv[2:4])
-if len(sys.argv) > 5:
-    expected = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8-sig"))
-    if expected["source_commit"] != sys.argv[6]:
-        expected = independent_workload(sys.argv[4])
+if len(sys.argv) > 6:
+    expected = json.loads(Path(sys.argv[6]).read_text(encoding="utf-8-sig"))
+    if expected["source_commit"] != sys.argv[7]:
+        expected = independent_workload(sys.argv[4], sys.argv[5])
 else:
     a = read_cmake_cache(old)
     expected = {
@@ -135,7 +135,7 @@ result["native_python"] = check_native_python(new, sys.argv[4])
 result["source_version"] = read_source_version(new.parent / "opencv")
 print(json.dumps(result))
 '@
-    $inspectionArguments = @('-B','-c',$inspect,$PSScriptRoot,(Join-Path $root 'build'),$build,$platform.architecture)
+    $inspectionArguments = @('-B','-c',$inspect,$PSScriptRoot,(Join-Path $root 'build'),$build,$platform.architecture,$platform.generator)
     if ($ExpectedWorkload) { $inspectionArguments += @($ExpectedWorkload,$profile.opencv.commit) }
     $raw = & $original.measurement_python @inspectionArguments
     if ($LASTEXITCODE -ne 0) { throw 'Configured workload/dependency checks failed; do not time this tree.' }

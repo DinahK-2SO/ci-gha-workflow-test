@@ -32,7 +32,7 @@ def assert_checkout(root, expected):
 def build_step_inputs(workdir, builddir, legacy_shared_cap=None):
     inputs = {
         "workdir": workdir.as_posix(), "builddir": builddir,
-        "generator": "Visual Studio 17 2022",
+        "generator": read_cmake_cache(workdir / builddir)["CMAKE_GENERATOR"],
     }
     if legacy_shared_cap is not None:
         inputs.update({
@@ -65,11 +65,11 @@ def read_source_version(source):
     return {"runtime_version": ".".join(numbers) + status.group(1), "dll_suffix": "".join(numbers)}
 
 
-def independent_workload(architecture):
+def independent_workload(architecture, generator):
     return {
         "inventory_policy": "Independent source: validate required workload and freeze its own complete inventory.",
         "required_options": {
-            "CMAKE_GENERATOR": "Visual Studio 17 2022", "CMAKE_GENERATOR_PLATFORM": architecture,
+            "CMAKE_GENERATOR": generator, "CMAKE_GENERATOR_PLATFORM": architecture,
             "CMAKE_BUILD_TYPE": "Release", "CL_Z_OPTION": "/Z7", "OPENCV_ENABLE_NONFREE": "ON",
             "BUILD_LIST": "", "BUILD_SHARED_LIBS": "ON", "BUILD_EXAMPLES": "ON",
             "BUILD_TESTS": "ON", "BUILD_PERF_TESTS": "ON", "BUILD_opencv_apps": "ON",

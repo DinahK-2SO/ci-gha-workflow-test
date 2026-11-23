@@ -50,7 +50,7 @@
   "required_installed_tools": [
     "PowerShell 7 or later",
     "Git for Windows with Git Bash",
-    "Visual Studio 2022 with native C++ tools matching the selected OS architecture and a compatible Windows SDK"
+    "Visual Studio 2019 on x64 or Visual Studio 2022 on ARM64, with matching native C++ tools and a compatible Windows SDK"
   ],
   "platform_integration": "DUT-local entry point; no Powerlab allocation or HOBL profile/RPC lifecycle is performed.",
   "native_numpy_runtime_included": false

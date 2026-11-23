@@ -68,7 +68,10 @@ function Assert-HandoffPackage([string]$Root,[switch]$SkipIntegrityChecks) {
 }
 
 function Assert-HandoffProfile($Profile, $Manifest = $null) {
-    $null=Get-NativeBuildPlatform $Profile.architecture
+    $platform=Get-NativeBuildPlatform $Profile.architecture
+    if ($Profile.generator -cne $platform.generator) {
+        throw "The $($platform.architecture) profile requires the $($platform.generator) generator. Recreate the package from the source handoff."
+    }
     $independent=$Profile.comparison_axis -ceq 'independent_sources'
     $expectedOrder=if ($independent) {'baseline'} else {'baseline|fixed'}
     if ($Profile.schema_version -ne 2 -or
@@ -122,10 +125,10 @@ function Find-HandoffToolchain([string]$Architecture = (Get-NativeBuildPlatform)
     if (-not $bash) { throw 'Git Bash was not found beside Git; install/authorize the required toolchain separately.' }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw 'Visual Studio discovery tool is absent; no installer will be run.' }
-    $raw = & $vswhere -latest -products '*' -version '[17.0,18.0)' -format json -utf8
+    $raw = & $vswhere -latest -products '*' -version $platform.vs_version_range -format json -utf8
     if ($LASTEXITCODE -ne 0) { throw 'Visual Studio discovery failed.' }
     $instances = @(($raw -join "`n") | ConvertFrom-Json)
-    if ($instances.Count -ne 1) { throw 'No unique Visual Studio 2022 installation was selected.' }
+    if ($instances.Count -ne 1) { throw "No matching $($platform.generator) installation was selected for $($platform.architecture)." }
     $vs=$instances[0].installationPath
     $version=(Get-Content -LiteralPath (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
     $bin=Join-Path $vs "VC\Tools\MSVC\$version\bin\$($platform.compiler_subdirectory)"
@@ -141,7 +144,7 @@ function Find-HandoffToolchain([string]$Architecture = (Get-NativeBuildPlatform)
     }
     foreach ($name in @('git','bash','compiler','linker','dumpbin','msbuild')) {
         if (-not (Test-Path -LiteralPath $tools[$name] -PathType Leaf)) {
-            throw "Required installed $($platform.architecture) tool is missing: $name at $($tools[$name]). Install the matching VS2022 C++ tools/SDK separately."
+            throw "Required installed $($platform.architecture) tool is missing: $name at $($tools[$name]). Install the matching $($platform.generator) C++ tools/SDK separately."
         }
     }
     return $tools

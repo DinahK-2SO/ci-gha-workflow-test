@@ -20,8 +20,8 @@
     },
     {
       "path": "msbuild\\ci_action_trial.py",
-      "bytes": 17669,
-      "sha256": "CECF619399FCA3F62226DB959C798FDE105DB114ECB4AFF86B46F855DAB7A547"
+      "bytes": 17698,
+      "sha256": "71EB6E321036FDEEFABC5008268A2C3E7430476A80A26565C7FCF7543547FC73"
     },
     {
       "path": "msbuild\\cmake_probe.py",
@@ -30,8 +30,8 @@
     },
     {
       "path": "msbuild\\Configure-CiPilot.ps1",
-      "bytes": 9365,
-      "sha256": "1D2FAF1384233A125224D9E4619B04C3889C0FA35C80EEB143B4B6C8B3E02B9E"
+      "bytes": 9398,
+      "sha256": "A4834363BF76C1CBF656BFE0FA6DC90E048EFDC407F2BCDCBAF7FA93E7AF2DDF"
     },
     {
       "path": "msbuild\\Export-CiFunctionalResults.ps1",
@@ -45,8 +45,8 @@
     },
     {
       "path": "msbuild\\NativeArchitecture.psm1",
-      "bytes": 3293,
-      "sha256": "826785D035D82A3302745F91BC694B9CE63D01F69F4D64D7DE79E35369003529"
+      "bytes": 3457,
+      "sha256": "17F42FCC701A2FA2293CD3D34C5BFEA3E9C04E85B0065971FB8928C0EE37B737"
     },
     {
       "path": "msbuild\\prepare_ci_action.py",

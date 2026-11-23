@@ -209,6 +209,7 @@ function New-ComparisonBootstrap([string]$SourceRoot,[string]$ConfigPath,[string
     $platform=Get-NativeBuildPlatform $tools.architecture
     $profile=Get-Content -LiteralPath (Join-Path $SourceRoot 'profile.json') -Raw | ConvertFrom-Json
     $profile.architecture=$platform.architecture
+    $profile.generator=$platform.generator
     $profile.profile_id="opencv5x-windows-$($platform.architecture.ToLowerInvariant())-functional"
     if ([IO.DriveInfo]::new([IO.Path]::GetPathRoot($parent)).AvailableFreeSpace -lt $profile.minimum_free_disk_gib*1GB) {
         throw 'Insufficient disk headroom for clean-checkout bootstrap.'

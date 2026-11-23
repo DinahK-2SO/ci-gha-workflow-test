@@ -136,7 +136,8 @@ rerunning the folder therefore does not silently reuse an older loaded helper.
 The source entry point selects **x64 or ARM64 from Windows OS architecture**,
 not the shell architecture or `PROCESSOR_ARCHITECTURE`. No architecture field
 or extra step is needed in `comparison.json`. It selects the matching pinned
-CMake 4.1.1 and Python 3.13.14 archives, native VS2022 host/target compiler and
+CMake 4.1.1 and Python 3.13.14 archives, native compiler (VS 2019 for x64,
+VS 2022 for ARM64, matching the upstream Windows PR matrix) and
 MSBuild paths, Python import-library/PE checks, NumPy header ABI probe, and
 OpenCV output/binding checks. Other OS architectures fail explicitly.
 This is native-target selection, not a cross-compilation interface.
@@ -163,7 +164,7 @@ performance experiment.
 Support in the launcher does not imply a successful full build on every device.
 The installed toolchain check, dependency/ABI preparation and selected full
 builds still must pass locally. VS2026-only installations, 32-bit Windows and
-other targets are not selected by this pinned VS2022 profile.
+other targets do not match these native build profiles.
 
 ## Cache location
 
@@ -310,7 +311,7 @@ native Python development archive, NumPy compile headers, YAML, scripts and
 licenses. Dependency versions and configure options remain pinned; both
 OpenCV and CI repository/branch/commit selections are case-specific.
 
-Windows x64/ARM64, PowerShell 7, Git with Git Bash, and Visual Studio 2022 native
+Windows x64/ARM64, PowerShell 7, Git with Git Bash, and Visual Studio (2019 on x64, 2022 on ARM64) native
 matching-architecture C++ tools/SDK must already be installed. No system installer runs;
 bootstrap downloads/extracts private portable inputs only.
 There is no dependency on the author's checkout or old study directories.

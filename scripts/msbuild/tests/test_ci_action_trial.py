@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ci_action_trial import check_configured_workload, independent_workload, read_source_version
+from ci_action_trial import build_step_inputs, check_configured_workload, independent_workload, read_source_version
 
 
 class IndependentWorkloadTests(unittest.TestCase):
@@ -28,8 +28,17 @@ class IndependentWorkloadTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "source version"):
                 read_source_version(root)
 
+    def test_build_step_uses_configured_generator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = root / "build"
+            build.mkdir()
+            for generator in ("Visual Studio 16 2019", "Visual Studio 17 2022"):
+                (build / "CMakeCache.txt").write_text(f"CMAKE_GENERATOR:INTERNAL={generator}\n")
+                self.assertEqual(build_step_inputs(root, "build")["generator"], generator)
+
     def make_workload(self, root, overrides=None, modules=None):
-        expected = independent_workload("ARM64")
+        expected = independent_workload("ARM64", "Visual Studio 17 2022")
         values = dict(expected["required_options"])
         values.update({
             "OPENCV_MODULES_BUILD": ";".join(modules or expected["minimum_modules"]),
@@ -47,7 +56,7 @@ class IndependentWorkloadTests(unittest.TestCase):
     def test_independent_source_freezes_its_own_modules_and_features(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            modules = independent_workload("ARM64")["minimum_modules"] + ["opencv_new_module"]
+            modules = independent_workload("ARM64", "Visual Studio 17 2022")["minimum_modules"] + ["opencv_new_module"]
             expected = self.make_workload(root, {"WITH_NEW_FEATURE": "ON"}, modules)
             result = check_configured_workload(root, expected)
             self.assertEqual(result["modules"], modules)
