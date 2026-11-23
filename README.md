@@ -1,5 +1,8 @@
 # OpenCV Windows build comparison
 
+For the separate **standalone DLS compile and runtime comparison**, use
+[`dls-repro`](dls-repro/README.md). Neither experiment invokes the other.
+
 ## 1. Edit `comparison.json`
 
 Each object is one independent test. Replace its six source values:

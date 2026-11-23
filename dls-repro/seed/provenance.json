@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-11-12T15:39:49.446305+08:00",
+  "status": "standalone_fill_seed_not_minimized_or_performance_reproduced",
+  "source_commit": "71d3237a093b60a27601c20e9ee6c3e52154e8b1",
+  "source_path": "modules/calib3d/src/dls.cpp",
+  "source_sha256": "eb5b21aac36c41e322f53d966ce626f73297642b0e3c7a6f6449691375d1d34c",
+  "function": "cv::dls::cayley_LS_M",
+  "assignment_count": 1968,
+  "schedule_sha256": "a386b4a6bc3b716fa0d5ac656fa94412368e1a14a95f1e55c15bc0b06f421702",
+  "generator_sha256": "d0a2da02b17aca4b30e139fc62197cbec08b8366e54a0e04a79730ade03c9468",
+  "files_sha256": {
+    "LICENSE-OpenCV.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "cached.cpp": "f8306fc5bf864f62830ff8ce661248fd9d835b58a513c35066e4ef1e36433cd8",
+    "expected_entries.inc": "db90e32c81572a208abd46ac3d40dc5fadd8fb09b369435e20ffc660bb65f6e1",
+    "original.cpp": "2d98cc6289444fac79b9cc2b498e00f308090b7ec0ddfe41521211976456a818"
+  },
+  "removed_context": [
+    "OpenCV/standard-vector implementation",
+    "allocation",
+    "zero initialization",
+    "final transpose",
+    "surrounding solver and other translation-unit functions"
+  ],
+  "retained": [
+    "all 1968 ordered matrix coordinates and input indexes",
+    "double storage",
+    "row stride",
+    "inline accessors versus cached raw pointers"
+  ],
+  "performance_eligible": false,
+  "same_compiler_root_cause_established": false,
+  "public_inputs": [
+    {
+      "key": "opencv/opencv/71d3237a093b60a27601c20e9ee6c3e52154e8b1/LICENSE",
+      "endpoint": "repos/opencv/opencv/contents/LICENSE?ref=71d3237a093b60a27601c20e9ee6c3e52154e8b1",
+      "response_sha256": "197fc499b738e6f97f43005df362cd29fe8a3a8ae171c436b0a3fbf8649315c8",
+      "git_blob_sha1": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "content_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "key": "opencv/opencv/71d3237a093b60a27601c20e9ee6c3e52154e8b1/modules/calib3d/src/dls.cpp",
+      "endpoint": "repos/opencv/opencv/contents/modules/calib3d/src/dls.cpp?ref=71d3237a093b60a27601c20e9ee6c3e52154e8b1",
+      "response_sha256": "704f0fca6fec67f1cda76239ab42a738f8910d738be224b99025553e6389e8fc",
+      "git_blob_sha1": "f0b9d850e9879aa21dc87f899e605acad7801bc7",
+      "content_sha256": "eb5b21aac36c41e322f53d966ce626f73297642b0e3c7a6f6449691375d1d34c"
+    }
+  ]
+}

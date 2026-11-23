@@ -1,0 +1,5 @@
+# The provenance manifest identifies the original OpenCV-derived bytes.
+seed/original.cpp -text
+seed/cached.cpp -text
+seed/expected_entries.inc -text
+seed/LICENSE-OpenCV.txt -text

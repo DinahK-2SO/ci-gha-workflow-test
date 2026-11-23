@@ -1,0 +1,6 @@
+{
+  "compile_pairs": 2,
+  "runtime_pairs": 4,
+  "warmup_pairs_per_phase": 1,
+  "sweeps_per_runtime_trial": 500
+}
