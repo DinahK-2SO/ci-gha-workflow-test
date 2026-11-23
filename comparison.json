@@ -1,29 +1,20 @@
 [
   {
-    "label": "A",
+    "label": "baseline",
     "opencv-repo": "opencv/opencv",
-    "opencv-branch": "5.x",
-    "opencv-commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
-    "ci-gha-repo": "DinahK-2SO/ci-gha-workflow",
-    "ci-gha-branch": "perf/windows-msbuild-shared-budget",
+    "opencv-branch": "4.x",
+    "opencv-commit": "9518d68f4d9b3141b08b3cc738b18e328fa9de8f",
+    "ci-gha-repo": "opencv/ci-gha-workflow",
+    "ci-gha-branch": "main",
     "ci-gha-commit": "26e5e9767c2278b18eec51763a1a85de7a44cfc3"
   },
   {
-    "label": "B",
-    "opencv-repo": "opencv/opencv",
-    "opencv-branch": "5.x",
-    "opencv-commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
-    "ci-gha-repo": "DinahK-2SO/ci-gha-workflow",
-    "ci-gha-branch": "perf/windows-msbuild-shared-budget-publish",
-    "ci-gha-commit": "c028cff2efe581ddc06ce83d3bbbda088bf8ad96"
-  },
-  {
-    "label": "C",
-    "opencv-repo": "opencv/opencv",
-    "opencv-branch": "5.x",
-    "opencv-commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
-    "ci-gha-repo": "DinahK-2SO/ci-gha-workflow",
-    "ci-gha-branch": "perf/windows-msbuild-shared-budget-publish",
-    "ci-gha-commit": "a83c7a68aca710f34bac42b25f8c7ef45edcee31"
+    "label": "dls-cleanup",
+    "opencv-repo": "DinahK-2SO/opencv",
+    "opencv-branch": "4.x-remove-unused-dls",
+    "opencv-commit": "a9d20ae75a9f51edd856059e7a2d84f8d728ac95",
+    "ci-gha-repo": "opencv/ci-gha-workflow",
+    "ci-gha-branch": "main",
+    "ci-gha-commit": "26e5e9767c2278b18eec51763a1a85de7a44cfc3"
   }
 ]
