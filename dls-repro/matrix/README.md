@@ -30,8 +30,12 @@ the existing DLS guard requires 24 GiB of free host memory.
 
 ### Repetition counts
 
-`launches` is an even count (2–32) of independent warmed processes, alternating
-between two verified function link orders. `blocks` (1–64) is the number
+`launches` is an even count (2–32) of separate warmed processes. Each adjacent
+pair uses both verified link orders. Which layout goes first is seeded and
+counterbalanced (at most one extra first position when the pair count is odd).
+This changes neither within-process slot order nor the number of launches
+per layout. It does not sample a population of binary layouts.
+`blocks` (1–64) is the number
 of shuffled blocks per launch. Each block contains **AB, BA, AA and BB**
 exactly once: A is original, B caches pointers; AA/BB are noise controls.
 Thus each variant gets **`4 × launches × blocks` timed slots**. `sweeps`
@@ -89,3 +93,31 @@ have at least two launches. No outliers are removed.
 ```powershell
 python -B .\matrix\worker.py --replay C:\measurements\warm-001\cases\vs2022
 ```
+
+### Diagnosing a pilot without changing the experiment
+
+`diagnostics.json` retains the ordered block time levels (geometric mean over
+the balanced slots) and block-level code effects within every launch. The
+last-half vs first-half change excludes the middle item for odd lengths;
+lag-1 correlation is reported only for six or more nonconstant observations.
+Across launches we compare time levels *within each layout*. Inspect these
+sequences for drift, not as a test proving that warm-up finished or launches
+were independent. AA/BB and link-order splits are sensitivity checks; a
+change of sign between noisy point estimates does not prove a layout effect.
+
+The optional pilot variance decomposition uses block **log effects**, not
+raw fills. It reports mean within-launch sample variance `S1`, pooled
+within-layout launch-mean variance `S2` (equal-size strata), and `S2-S1/blocks`.
+This last value can be negative; it is a noisy planning diagnostic under a
+balanced random-effects approximation, not the variance used in the interval.
+`launch-costs.json` records elapsed command time and the sum of timed kernel
+intervals. Their difference includes warming, conditioning, checks, startup
+and other overhead; it is not a measurement of warm-up alone. Allocate future
+budget at the level where variation matters. Use a separate predeclared study
+to confirm; do not stop a run when the interval becomes favorable.
+
+To inspect an archived case **without writing anything to it**, run
+`python -B .\matrix\worker.py --diagnose CASE_DIR`. Receipts predating the
+counterbalanced layout schedule replay with their original fixed alternation.
+They have no retrospective practical-band decision. New cases check both
+the frozen protocol digest and the diagnostic trace on replay.

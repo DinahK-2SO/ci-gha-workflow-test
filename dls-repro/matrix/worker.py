@@ -21,7 +21,7 @@ sys.path.insert(0, str(PKG / "order-probe"))
 from analyze import contrasts, summarize_strata
 from protocol import PAIRS
 from run import check_source, sha
-from methodology import band_decision, protocol
+from methodology import band_decision, diagnostics, launch_layouts, protocol, NEW_LAYOUT, OLD_LAYOUT
 
 GNU_FLAGS = "-std=c++14 -O2 -DNDEBUG -fno-fast-math -ffp-contract=off -fno-lto -Wall -Wextra -Werror".split()
 MS_FLAGS = "/nologo /std:c++14 /O2 /Ob2 /Gy- /MD /EHa /fp:precise /DNDEBUG /W4 /WX".split()
@@ -47,7 +47,7 @@ def same_result(actual, recorded):
     return actual == recorded
 
 
-def replay(directory):
+def replay(directory, describe=False):
     meta = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     with (directory / "trials.csv").open(newline="") as f:
         reader = csv.DictReader(f)
@@ -55,31 +55,44 @@ def replay(directory):
             raise ValueError("Unexpected CSV header")
         rows = [{k: (v if k in ("layout", "pair", "variant") else
                      float(v) if k == "ns_per_fill" else int(v)) for k, v in row.items()} for row in reader]
-    recomputed = summarize(rows, meta["launches"], meta["blocks"], meta["sweeps"], meta["seed"])
+    policy = meta.get("layout_policy", OLD_LAYOUT)
+    if policy == NEW_LAYOUT and "protocol_sha256" not in meta:
+        raise ValueError("Missing frozen protocol identity")
+    extra = {}
+    recomputed = summarize(rows, meta["launches"], meta["blocks"], meta["sweeps"], meta["seed"],
+                           policy, extra)
     if "protocol_sha256" in meta:
         path = directory / "protocol.json"
         plan = json.loads(path.read_text(encoding="utf-8"))
-        if sha(path) != meta["protocol_sha256"] or any(meta[k] != plan[k] for k in ("launches","blocks","sweeps","seed")):
+        if (sha(path) != meta["protocol_sha256"] or plan.get("layout_policy", OLD_LAYOUT) != policy
+                or any(meta[k] != plan[k] for k in ("launches","blocks","sweeps","seed"))
+                or (plan["cpu"] != -1 and plan["cpu"] != recomputed["cpu"])):
             raise ValueError("Result does not match the frozen protocol")
         recomputed["band_decision"] = band_decision(recomputed["contrasts_pct"]["cached_vs_original"]["bootstrap95"],
                                                    plan["practical_band_pct"])
     if meta["status"] != "passed" or any(not same_result(value, meta[key]) for key, value in recomputed.items()):
         raise ValueError("Raw observations do not reproduce the recorded result")
-    print(f"Verified {len(rows)} slots: {directory.name}")
+    if policy == NEW_LAYOUT:
+        disk = json.loads((directory / "diagnostics.json").read_text(encoding="utf-8"))
+        if not same_result(extra, disk):
+            raise ValueError("Post-warm-up diagnostics do not replay")
+    if describe:
+        print(json.dumps(extra, indent=2))
+    else:
+        print(f"Verified {len(rows)} slots: {directory.name}")
 
 
-def schedule(launches, blocks, seed):
+def schedule(launches, blocks, seed, layout_policy=NEW_LAYOUT):
     rng = random.Random(seed)
-    for launch in range(launches):
-        layout = ("AB", "BA")[launch % 2]
+    for launch, layout in enumerate(launch_layouts(launches, seed, layout_policy)):
         slots = [(launch, layout, block, order, pair, slot, variant)
                  for block in range(blocks) for order, pair in enumerate(rng.sample(PAIRS, len(PAIRS)))
                  for slot, variant in enumerate(pair, 1)]
         yield layout, slots
 
 
-def summarize(rows, launches, blocks, sweeps, seed):
-    expected = [s for _, slots in schedule(launches, blocks, seed) for s in slots]
+def summarize(rows, launches, blocks, sweeps, seed, layout_policy=NEW_LAYOUT, diagnostic_output=None):
+    expected = [s for _, slots in schedule(launches, blocks, seed, layout_policy) for s in slots]
     if len(rows) != len(expected):
         raise ValueError("Missing or extra slots")
     grouped = defaultdict(dict)
@@ -104,6 +117,8 @@ def summarize(rows, launches, blocks, sweeps, seed):
         for (layout, _), records in sorted(clusters.items()):
             strata[layout].append(mean(r[name] for r in records))
         metrics[name] = summarize_strata(strata, seed)
+    if diagnostic_output is not None:
+        diagnostic_output.update(diagnostics(rows, clusters, metrics))
     return dict(slots=len(rows), fills_per_slot=40*sweeps, cpu=cpus.pop(), launches=launches,
                 median_ns_per_fill={v: median(r["ns_per_fill"] for r in rows
                                               if r["variant"] == v and r["pair"] in ("AB", "BA")) for v in "AB"},
@@ -139,6 +154,7 @@ def execute(a):
     plan_sha = sha(plan_path)
     flags = MS_FLAGS if msvc else GNU_FLAGS
     rows = []
+    launch_costs = []
     selected = a.cpu
     layouts = {}
     started = time.time()
@@ -187,7 +203,10 @@ def execute(a):
             writer.writeheader()
             for layout, slots in schedule(a.launches, a.blocks, a.seed):
                 seq = "".join(row[-1] for row in slots)
+                launch_start = time.time()
+                start_ns = time.perf_counter_ns()
                 lines = cmd([binaries[layout],seq,a.sweeps,selected], timeout=max(90, len(seq)*a.sweeps//250)).splitlines()
+                command_ns = time.perf_counter_ns() - start_ns
                 if len(lines) != 1+len(seq):
                     raise ValueError("Missing native checker slots")
                 passed = re.fullmatch(r"PASS (\d+) (\d+) 40 (AB|BA)",lines[0])
@@ -197,22 +216,27 @@ def execute(a):
                 if passed[3] != layout:
                     raise ValueError(f"Requested link order {layout}, observed {passed[3]}")
                 layouts[layout] = passed[3]
+                timed_ns = 0
                 for slot, line in zip(slots, lines[1:]):
                     variant, duration, c0, c1, cpu_ns, rss = line.split()
                     ns = int(duration)
+                    timed_ns += ns
                     if variant != slot[-1] or ns <= 0 or (int(c0),int(c1)) != (selected,selected):
                         raise ValueError("Native CPU/order/duration mismatch")
                     row = dict(zip(COLUMNS, (*slot,pid,selected,ns,ns/(40*a.sweeps),int(cpu_ns),int(rss))))
                     writer.writerow(row)
                     rows.append(row)
                 f.flush()
+                launch_costs.append(dict(launch=slots[0][0], layout=layout, started_epoch=launch_start,
+                                         command_ns=command_ns, timed_kernel_ns=timed_ns))
         if len(set(layouts.values())) != 2:
             raise ValueError(f"Linker did not produce two distinct function orders: {layouts}")
         artifacts = {layout:sha(exe) for layout,exe in binaries.items()}
-    stats = summarize(rows,a.launches,a.blocks,a.sweeps,a.seed)
+    extra = {}
+    stats = summarize(rows,a.launches,a.blocks,a.sweeps,a.seed,NEW_LAYOUT,extra)
     if sha(plan_path) != plan_sha:
         raise ValueError("Protocol changed during measurement")
-    stats.update(protocol_sha256=plan_sha, band_decision=band_decision(
+    stats.update(protocol_sha256=plan_sha, layout_policy=NEW_LAYOUT, band_decision=band_decision(
         stats["contrasts_pct"]["cached_vs_original"]["bootstrap95"], a.practical_band_pct))
     stats.update(status="passed",compiler=str(cc),version=version,target=target,system=a.system,family=a.family,
                  vs_year=a.year,os=platform.platform(),kernel=platform.release(),compiler_sha256=sha(cc),
@@ -220,19 +244,24 @@ def execute(a):
                  seed=a.seed,started=started,finished=time.time(),warmup_ms=1000,conditioning_sweeps=16,
                  source_sha256={p.name:sha(p) for p in (src/"original.cpp",src/"cached.cpp",src/"check.cpp",src/"dls_seed.hpp",warm)})
     (a.out/"summary.json").write_text(json.dumps(stats,indent=2)+"\n",encoding="utf-8")
+    (a.out/"diagnostics.json").write_text(json.dumps(extra,indent=2)+"\n",encoding="utf-8")
+    (a.out/"launch-costs.json").write_text(json.dumps(launch_costs,indent=2)+"\n",encoding="utf-8")
     lines = ["launch block order pair | first / second (ns/fill)"]
     for first,second in zip(rows[::2],rows[1::2]):
         lines.append(f"{first['launch']:6} {first['block']:5} {first['order']:5} {first['pair']:4} | "
                      f"{first['ns_per_fill']:.3f} / {second['ns_per_fill']:.3f}")
     lines.append(json.dumps(stats["contrasts_pct"],indent=2))
     lines.extend([plan["estimand"], plan["population"], f"Practical band (%): {a.practical_band_pct}; {stats['band_decision']}"])
+    lines.extend([f"Cached effect by fixed layout (%): {extra['layout_effect_pct']}",
+                  f"Launch-level drift (post-warm-up, descriptive): {extra['launch_level_by_layout']}",
+                  "See diagnostics.json for the ordered traces. No observations were excluded."])
     (a.out/"report.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")
     print("\n".join(lines))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--replay":
-        replay(Path(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] in ("--replay", "--diagnose"):
+        replay(Path(sys.argv[2]), describe=sys.argv[1] == "--diagnose")
         sys.exit(0)
     p = argparse.ArgumentParser(description=__doc__, epilog="Replay a completed case: worker.py --replay CASE_DIR")
     p.add_argument("--system",choices=("windows","wsl"),required=True)

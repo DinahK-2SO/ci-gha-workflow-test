@@ -3,7 +3,7 @@ import math
 import unittest
 
 from worker import COLUMNS, limits, same_result, schedule, summarize
-from methodology import band_decision, protocol
+from methodology import band_decision, launch_layouts, protocol, OLD_LAYOUT, NEW_LAYOUT
 
 
 def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
@@ -18,6 +18,36 @@ def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
 
 
 class RuntimeMatrixTests(unittest.TestCase):
+    def test_layout_positions_balanced_without_perturbing_slot_order(self):
+        for launches in (2, 6, 12, 16, 32):
+            for seed in (0, 73, 241124):
+                layouts = launch_layouts(launches, seed, NEW_LAYOUT)
+                self.assertEqual(layouts.count("AB"), launches//2)
+                self.assertTrue(all(a != b for a,b in zip(layouts[::2], layouts[1::2])))
+                self.assertLessEqual(abs(layouts[::2].count("AB")-layouts[::2].count("BA")), 1)
+                old = schedule(launches, 3, seed, OLD_LAYOUT)
+                new = schedule(launches, 3, seed, NEW_LAYOUT)
+                for (_, oslots), (_, nslots) in zip(old, new):
+                    self.assertEqual([s[2:] for s in oslots], [s[2:] for s in nslots])
+
+    def test_diagnostics_surface_drift_and_opposing_layout_effects_without_dropping_data(self):
+        rows = synthetic(launches=4, blocks=6)
+        for r in rows:
+            factor = (r["block"]+1) * (2 if (r["layout"]=="AB" and r["variant"]=="B") else 1)
+            r["ns_per_fill"] *= factor
+            r["ns"] *= factor
+        diag = {}
+        s = summarize(rows, 4, 6, 7, 73, diagnostic_output=diag)
+        self.assertEqual(s["slots"], len(rows))
+        self.assertTrue(diag["layout_point_estimates_straddle_zero"])
+        self.assertEqual([x["launch"] for x in diag["launch_trace"]], list(range(4)))
+        self.assertTrue(all(x["late_vs_early_pct"] > 0 and x["block_level_lag1"] > 0.8
+                            for x in diag["launch_trace"]))
+        short = {}
+        summarize(synthetic(2, 1), 2, 1, 7, 73, diagnostic_output=short)
+        self.assertIsNone(short["launch_trace"][0]["late_vs_early_pct"])
+        self.assertIsNone(short["pilot_log_effect_variance"]["signed_launch_component"])
+
     def test_entire_interval_needed_for_practical_interpretation(self):
         for ci, band, expected in [
             ([-4,-2.1], 2, "faster_beyond_band"), ([2.1,4], 2, "slower_beyond_band"),
