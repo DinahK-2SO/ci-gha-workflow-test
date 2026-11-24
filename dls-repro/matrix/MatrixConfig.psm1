@@ -8,7 +8,7 @@ function Read-RuntimeMatrix([string]$Path) {
         if ($e -isnot [System.Collections.IDictionary]) { throw 'Each entry must be an object.' }
         $keys = @('id','enabled','command','launches','blocks','sweeps')
         if (@($keys | Where-Object { !$e.Contains($_) }).Count -or
-            @($e.Keys | Where-Object { $_ -cnotin ($keys + @('cpu','seed')) }).Count) { throw 'Invalid or missing environment fields.' }
+            @($e.Keys | Where-Object { $_ -cnotin ($keys + @('cpu','seed','practical_band_pct')) }).Count) { throw 'Invalid or missing environment fields.' }
         $id = $e.id
         if ($id -isnot [string] -or $id -cnotmatch '^[a-zA-Z][a-zA-Z0-9_-]{0,31}$' -or
             $id -match '^(con|prn|aux|nul|com[1-9]|lpt[1-9])$' -or $ids.ContainsKey($id)) { throw "Invalid or duplicate id: $id" }
@@ -26,6 +26,10 @@ function Read-RuntimeMatrix([string]$Path) {
         }
         if (!$e.Contains('cpu')) { $e.cpu = -1 }
         if (!$e.Contains('seed')) { $e.seed = 20261124 }
+        if (!$e.Contains('practical_band_pct')) { $e.practical_band_pct = $null }
+        $band = $e.practical_band_pct
+        if ($null -ne $band -and (($band -isnot [int] -and $band -isnot [long] -and $band -isnot [double] -and $band -isnot [decimal]) -or
+            [double]::IsNaN($band) -or $band -le 0 -or $band -ge 100)) { throw "Invalid practical_band_pct for $id (expected 0 < percent < 100)" }
         foreach ($pair in @(@('launches',2,32),@('blocks',1,64),@('sweeps',1,10000),@('cpu',-1,1023),@('seed',0,2147483647))) {
             $n = $e[$pair[0]]
             if (($n -isnot [int] -and $n -isnot [long]) -or $n -lt $pair[1] -or $n -gt $pair[2]) {

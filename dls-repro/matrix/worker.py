@@ -21,6 +21,7 @@ sys.path.insert(0, str(PKG / "order-probe"))
 from analyze import contrasts, summarize_strata
 from protocol import PAIRS
 from run import check_source, sha
+from methodology import band_decision, protocol
 
 GNU_FLAGS = "-std=c++14 -O2 -DNDEBUG -fno-fast-math -ffp-contract=off -fno-lto -Wall -Wextra -Werror".split()
 MS_FLAGS = "/nologo /std:c++14 /O2 /Ob2 /Gy- /MD /EHa /fp:precise /DNDEBUG /W4 /WX".split()
@@ -55,6 +56,13 @@ def replay(directory):
         rows = [{k: (v if k in ("layout", "pair", "variant") else
                      float(v) if k == "ns_per_fill" else int(v)) for k, v in row.items()} for row in reader]
     recomputed = summarize(rows, meta["launches"], meta["blocks"], meta["sweeps"], meta["seed"])
+    if "protocol_sha256" in meta:
+        path = directory / "protocol.json"
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        if sha(path) != meta["protocol_sha256"] or any(meta[k] != plan[k] for k in ("launches","blocks","sweeps","seed")):
+            raise ValueError("Result does not match the frozen protocol")
+        recomputed["band_decision"] = band_decision(recomputed["contrasts_pct"]["cached_vs_original"]["bootstrap95"],
+                                                   plan["practical_band_pct"])
     if meta["status"] != "passed" or any(not same_result(value, meta[key]) for key, value in recomputed.items()):
         raise ValueError("Raw observations do not reproduce the recorded result")
     print(f"Verified {len(rows)} slots: {directory.name}")
@@ -104,6 +112,7 @@ def summarize(rows, launches, blocks, sweeps, seed):
 
 def execute(a):
     limits(a.launches, a.blocks, a.sweeps)
+    plan = protocol(a.launches, a.blocks, a.sweeps, a.seed, a.cpu, a.practical_band_pct)
     if a.cpu < -1 or a.cpu > 1023 or not 0 <= a.seed <= 2147483647:
         raise ValueError("Invalid CPU or seed")
     if a.system == "wsl":
@@ -124,6 +133,10 @@ def execute(a):
     check_source(src)
     msvc = a.family == "msvc"
     a.out.mkdir(exist_ok=False)
+    plan_path = a.out / "protocol.json"
+    plan.update(system=a.system, compiler=str(cc), family=a.family, vs_year=a.year)
+    plan_path.write_text(json.dumps(plan, indent=2)+"\n", encoding="utf-8")
+    plan_sha = sha(plan_path)
     flags = MS_FLAGS if msvc else GNU_FLAGS
     rows = []
     selected = a.cpu
@@ -197,6 +210,10 @@ def execute(a):
             raise ValueError(f"Linker did not produce two distinct function orders: {layouts}")
         artifacts = {layout:sha(exe) for layout,exe in binaries.items()}
     stats = summarize(rows,a.launches,a.blocks,a.sweeps,a.seed)
+    if sha(plan_path) != plan_sha:
+        raise ValueError("Protocol changed during measurement")
+    stats.update(protocol_sha256=plan_sha, band_decision=band_decision(
+        stats["contrasts_pct"]["cached_vs_original"]["bootstrap95"], a.practical_band_pct))
     stats.update(status="passed",compiler=str(cc),version=version,target=target,system=a.system,family=a.family,
                  vs_year=a.year,os=platform.platform(),kernel=platform.release(),compiler_sha256=sha(cc),
                  flags=flags,actual_layouts=layouts,exe_sha256=artifacts,blocks=a.blocks,sweeps=a.sweeps,
@@ -208,6 +225,7 @@ def execute(a):
         lines.append(f"{first['launch']:6} {first['block']:5} {first['order']:5} {first['pair']:4} | "
                      f"{first['ns_per_fill']:.3f} / {second['ns_per_fill']:.3f}")
     lines.append(json.dumps(stats["contrasts_pct"],indent=2))
+    lines.extend([plan["estimand"], plan["population"], f"Practical band (%): {a.practical_band_pct}; {stats['band_decision']}"])
     (a.out/"report.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")
     print("\n".join(lines))
 
@@ -221,6 +239,7 @@ if __name__ == "__main__":
     p.add_argument("--family",choices=("msvc","gcc","clang"),required=True)
     p.add_argument("--compiler",required=True)
     p.add_argument("--year",choices=("2019","2022","2026"))
+    p.add_argument("--practical-band-pct", type=float)
     p.add_argument("--out",type=Path,required=True)
     for field in ("launches","blocks","sweeps","seed","cpu"):
         p.add_argument("--"+field,type=int,required=True)

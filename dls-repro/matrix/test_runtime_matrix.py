@@ -3,6 +3,7 @@ import math
 import unittest
 
 from worker import COLUMNS, limits, same_result, schedule, summarize
+from methodology import band_decision, protocol
 
 
 def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
@@ -17,6 +18,18 @@ def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
 
 
 class RuntimeMatrixTests(unittest.TestCase):
+    def test_entire_interval_needed_for_practical_interpretation(self):
+        for ci, band, expected in [
+            ([-4,-2.1], 2, "faster_beyond_band"), ([2.1,4], 2, "slower_beyond_band"),
+            ([-2,2], 2, "interval_inside_band"), ([-3,-1], 2, "inconclusive_at_band"),
+            ([-4,-2], 2, "inconclusive_at_band"), ([-5,3], 2, "inconclusive_at_band"),
+            (None, 2, "no_interval"), ([-6,-4], None, "no_band_declared")]:
+            with self.subTest(ci=ci, band=band):
+                self.assertEqual(band_decision(ci, band), expected)
+        for band in [0, -2, 100, math.nan, math.inf, True]:
+            with self.assertRaises(ValueError):
+                protocol(16, 4, 500, 241124, -1, band)
+
     def test_replay_allows_libm_roundoff_not_changed_estimates_or_counts(self):
         actual = {"interval": [-1.3, 2.7], "slots": 384}
         recorded = copy.deepcopy(actual)

@@ -2,6 +2,7 @@
   // Toggle enabled or comment out the entire object (including its comma).
   // Each block shuffles AB, BA, AA and BB: exactly four slots per variant.
   // launches must be even; 4+ allows a launch-level confidence interval.
+  // Optional per row: "practical_band_pct":2 means predeclare a +/-2% time band.
   {"id":"vs2019",        "enabled":false, "command":["msvc","2019"],                  "launches":12, "blocks":4, "sweeps":500},
   {"id":"vs2022",        "enabled":true,  "command":["msvc","2022"],                  "launches":12, "blocks":4, "sweeps":500},
   {"id":"vs2026",        "enabled":false, "command":["msvc","2026"],                  "launches":12, "blocks":4, "sweeps":500},

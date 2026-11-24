@@ -62,6 +62,18 @@ of compiler brand or OS, and does not measure whole-OpenCV builds.
 
 ### Read or replay a run
 
+Before compilation, each case saves `protocol.json`: the fixed budget, warm-up,
+metric, scope, optional practical band and no-retry rule. Set, for example,
+`"practical_band_pct": 2` **before** a run if +/-2% is meaningful for that
+case. Omit it for descriptive results. `faster_beyond_band` and
+`slower_beyond_band` require the *entire* approximate interval strictly
+beyond the chosen edge; `interval_inside_band` requires both endpoints
+inside the band. Anything overlapping an edge is inconclusive at that band.
+A missing interval cannot support a decision. These labels are conditional
+interpretations, not tests of a universal performance threshold or proof of
+bootstrap coverage. The primary effect is a paired geometric time change,
+not a ratio of arithmetic means or of the displayed medians.
+
 `matrix.txt` is the terminal comparison table; `matrix.json` includes
 status and host snapshots for each selected case. If a selected tool is
 missing, its row fails, the remaining selections still run, and the launcher

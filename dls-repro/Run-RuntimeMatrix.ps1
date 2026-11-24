@@ -62,12 +62,15 @@ try {
         $log = Join-Path "$out\logs" "$id.log"
         $row = [ordered]@{id=$id; command=$c; status='running'; launches=$e.launches; blocks=$e.blocks;
             sweeps=$e.sweeps; version=$null; target=$null; slots=$null; original_ns=$null; cached_ns=$null;
-            cached_pct=$null; interval95=$null; host_before=$null; host_after=$null; error=$null}
+            cached_pct=$null; interval95=$null; band_pct=$e.practical_band_pct; decision=$null; host_before=$null; host_after=$null; error=$null}
         $rows += $row; Save-Matrix
         Write-Host "Running $id ($($c -join ' ')) ..."
         try {
             $row.host_before=Get-MatrixHost
             $common = @('--launches',"$($e.launches)",'--blocks',"$($e.blocks)",'--sweeps',"$($e.sweeps)",'--seed',"$($e.seed)",'--cpu',"$($e.cpu)")
+            if ($null -ne $e.practical_band_pct) {
+                $common += @('--practical-band-pct', $e.practical_band_pct.ToString([Globalization.CultureInfo]::InvariantCulture))
+            }
             if ($c[0] -ceq 'wsl') {
                 $guestWorker = Guest-Path $c[1] $worker
                 $guestOut = Guest-Path $c[1] $caseOut
@@ -100,6 +103,7 @@ try {
             $row.original_ns=$result.median_ns_per_fill.A; $row.cached_ns=$result.median_ns_per_fill.B
             $row.cached_pct=$result.contrasts_pct.cached_vs_original.estimate
             $row.interval95=$result.contrasts_pct.cached_vs_original.bootstrap95
+            $row.decision=$result.band_decision
             Get-Content -LiteralPath "$caseOut\report.txt" | Write-Host
         } catch {
             $row.status='failed'; $row.error=$_.Exception.Message.Trim()
@@ -107,11 +111,12 @@ try {
         }
         Save-Matrix
     }
-    $table = @('environment | status | A ns/fill | B ns/fill | order-adjusted B vs A | 95% interval')
+    $table = @('environment | status | A ns/fill | B ns/fill | order-adjusted B vs A | approximate 95% interval | practical band: interpretation')
     foreach ($row in $rows) {
         if ($row.status -eq 'failed') { $table += "$($row.id) | FAILED | $($row.error)"; continue }
         $ci = if ($null -eq $row.interval95) {'n/a (smoke)'} else {'[{0:F2}%, {1:F2}%]' -f $row.interval95[0],$row.interval95[1]}
-        $table += '{0} | passed | {1:F2} | {2:F2} | {3:F2}% | {4}' -f $row.id,$row.original_ns,$row.cached_ns,$row.cached_pct,$ci
+        $band = if ($null -eq $row.band_pct) {'none'} else {"+/-$($row.band_pct)%"}
+        $table += '{0} | passed | {1:F2} | {2:F2} | {3:F2}% | {4} | {5}: {6}' -f $row.id,$row.original_ns,$row.cached_ns,$row.cached_pct,$ci,$band,$row.decision
     }
     $table | Set-Content -LiteralPath "$out\matrix.txt" -Encoding utf8
     $table | Write-Host
