@@ -4,8 +4,13 @@ Copy **this directory alone** to a local drive. It compares two versions of
 the same 1,968 assignments: `original.cpp` accesses matrix/vector elements
 through inline accessors; `cached.cpp` caches pointers and row stride. No
 OpenCV checkout or libraries, Git, Python, CMake, downloads or sibling
-build-comparison files are required. This is an extracted fill kernel, not
+build-comparison files are required for the MSVC comparison. This is an extracted fill kernel, not
 the complete DLS solver or proof of a compiler bug.
+
+For the separate **GCC runtime order probe** (fresh vs warm processes,
+randomized run order, same-function controls and confidence intervals), see
+[order-probe](order-probe/README.md). It uses Python and a pinned native
+GCC toolchain; it does not replace or run the MSVC comparison below.
 
 ## Run
 

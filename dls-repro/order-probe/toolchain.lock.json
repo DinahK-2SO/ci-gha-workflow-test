@@ -1,0 +1,12 @@
+{
+  "repository": "brechtsanders/winlibs_mingw",
+  "release": "16.2.0posix-23.1.3-14.0.0-ucrt-r3",
+  "archive": "winlibs-x86_64-posix-seh-gcc-16.2.0-llvm-23.1.3-mingw-w64ucrt-14.0.0-r3.zip",
+  "archive_sha256": "1f04e482797dc5f71fe2875cf2b743bfb9f5fd1de0955fdd3118438c0432ba5f",
+  "target": "x86_64-w64-mingw32",
+  "bin_sha256": {
+    "g++.exe": "9c2577eacb115c305d7a1a0b10aa0b16d0b7b697824e151d190c62b21dd2eb8c",
+    "objdump.exe": "31e0217183b137c154df9fb87e0a1e18c85cac3d61cc3ca71083ca70d965cc8c",
+    "nm.exe": "8caa517c26c786feae41f97b42f9942a25a44d8662feab2c1c5943055f47710c"
+  }
+}
