@@ -1,7 +1,8 @@
 import copy
+import math
 import unittest
 
-from worker import COLUMNS, limits, schedule, summarize
+from worker import COLUMNS, limits, same_result, schedule, summarize
 
 
 def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
@@ -16,6 +17,17 @@ def synthetic(launches=4, blocks=2, sweeps=7, seed=73):
 
 
 class RuntimeMatrixTests(unittest.TestCase):
+    def test_replay_allows_libm_roundoff_not_changed_estimates_or_counts(self):
+        actual = {"interval": [-1.3, 2.7], "slots": 384}
+        recorded = copy.deepcopy(actual)
+        recorded["interval"][1] = math.nextafter(2.7, math.inf)
+        self.assertTrue(same_result(actual, recorded))
+        recorded["slots"] = 383
+        self.assertFalse(same_result(actual, recorded))
+        recorded["slots"] = 384
+        recorded["interval"][0] += 1e-6
+        self.assertFalse(same_result(actual, recorded))
+
     def test_user_counts_and_seed_control_balanced_samples(self):
         s = list(schedule(6, 3, 7))
         self.assertNotEqual(s, list(schedule(6, 3, 99)))

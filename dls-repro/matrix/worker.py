@@ -33,6 +33,19 @@ def limits(launches, blocks, sweeps):
         raise ValueError("Expected even launches (2..32), blocks (1..64), sweeps (1..10000)")
 
 
+def same_result(actual, recorded):
+    if type(actual) is not type(recorded):
+        return False
+    if isinstance(actual, dict):
+        return actual.keys() == recorded.keys() and all(same_result(v, recorded[k]) for k, v in actual.items())
+    if isinstance(actual, list):
+        return len(actual) == len(recorded) and all(same_result(x, y) for x, y in zip(actual, recorded))
+    if isinstance(actual, float):
+        # Windows and Linux libm can differ by a few ULPs on the same log/exp inputs.
+        return math.isclose(actual, recorded, rel_tol=1e-12, abs_tol=1e-12)
+    return actual == recorded
+
+
 def replay(directory):
     meta = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     with (directory / "trials.csv").open(newline="") as f:
@@ -42,7 +55,7 @@ def replay(directory):
         rows = [{k: (v if k in ("layout", "pair", "variant") else
                      float(v) if k == "ns_per_fill" else int(v)) for k, v in row.items()} for row in reader]
     recomputed = summarize(rows, meta["launches"], meta["blocks"], meta["sweeps"], meta["seed"])
-    if meta["status"] != "passed" or any(meta[key] != value for key, value in recomputed.items()):
+    if meta["status"] != "passed" or any(not same_result(value, meta[key]) for key, value in recomputed.items()):
         raise ValueError("Raw observations do not reproduce the recorded result")
     print(f"Verified {len(rows)} slots: {directory.name}")
 
