@@ -21,6 +21,20 @@ def contrasts(log_second_first):
     }
 
 
+def summarize_strata(strata, seed=SEED):
+    """Geometric time contrasts; resample entire launches within each layout."""
+    rng = Random(seed)
+    estimate = mean(mean(s) for s in strata.values())
+    pct = lambda x: 100 * math.expm1(x)
+    interval = None
+    if min(map(len, strata.values())) >= 2:
+        draws = [mean(mean(rng.choices(s, k=len(s))) for s in strata.values()) for _ in range(10000)]
+        q = quantiles(draws, n=1000, method="inclusive")
+        interval = [pct(q[24]), pct(q[974])]
+    return {"estimate": pct(estimate), "bootstrap95": interval,
+            "by_link_order": {layout: pct(mean(s)) for layout, s in strata.items()}}
+
+
 def read_trials(path):
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
@@ -70,14 +84,7 @@ def analyze(path):
             for (a, layout, _), records in sorted(clusters.items()):
                 if a == arm:
                     strata[layout].append(mean(rec[name] for rec in records))
-            rng = Random(SEED)
-            estimate = mean(mean(s) for s in strata.values())
-            draws = [mean(mean(rng.choices(s, k=len(s))) for s in strata.values()) for _ in range(10000)]
-            q = quantiles(draws, n=1000, method="inclusive")
-            pct = lambda x: 100 * math.expm1(x)
-            result["contrasts_pct"][name] = {
-                "estimate": pct(estimate), "bootstrap95": [pct(q[24]), pct(q[974])],
-                "by_link_order": {layout: pct(mean(s)) for layout, s in strata.items()}}
+            result["contrasts_pct"][name] = summarize_strata(strata)
         results[arm] = result
     return results
 

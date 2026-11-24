@@ -1,5 +1,11 @@
 # Paired DLS fill experiment for native Windows
 
+**To compare steady-state runtime across Windows and WSL**, edit
+[`runtime-matrix.jsonc`](runtime-matrix.jsonc) and run `.\Run-RuntimeMatrix.ps1`.
+Choose any subset of MSVC 2019/2022/2026, Windows GCC/Clang or WSL GCC/Clang.
+See [matrix usage, commands and repeat counts](matrix/README.md). The
+older MSVC compile/runtime comparison and fixed GCC order probe remain separate.
+
 Copy **this directory alone** to a local drive. It compares two versions of
 the same 1,968 assignments: `original.cpp` accesses matrix/vector elements
 through inline accessors; `cached.cpp` caches pointers and row stride. No

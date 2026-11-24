@@ -2,6 +2,9 @@
 
 For the separate **standalone DLS compile and runtime comparison**, use
 [`dls-repro`](dls-repro/README.md). Neither experiment invokes the other.
+For a warm-runtime comparison across selectable Windows and WSL compilers,
+edit [`dls-repro/runtime-matrix.jsonc`](dls-repro/runtime-matrix.jsonc) and
+run `.\dls-repro\Run-RuntimeMatrix.ps1`.
 
 ## 1. Edit `comparison.json`
 
