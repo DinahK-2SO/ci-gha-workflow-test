@@ -22,7 +22,7 @@ GCC toolchain; it does not replace or run the MSVC comparison below.
 
 Use PowerShell 7, native x64 or ARM64 Windows, a VS 2022 installation with
 matching native C++ tools, and Windows SDK `10.0.26100.0`. The **full build
-harness** in the repository root has different toolchain requirements.
+harness** in the sibling `opencv-build` folder has different toolchain requirements.
 Use an idle machine with at least 24 GiB of free memory. The runner refuses
 competing compilers, MSBuild nodes and OpenCV tests; do not stop other users'
 processes. It changes no machine settings. Results use a fresh directory

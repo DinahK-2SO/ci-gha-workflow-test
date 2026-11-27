@@ -1,77 +1,14 @@
-# OpenCV Windows build comparison
+# OpenCV Windows test packages
 
-For the separate **standalone DLS compile and runtime comparison**, use
-[`dls-repro`](dls-repro/README.md). Neither experiment invokes the other.
-For a warm-runtime comparison across selectable Windows and WSL compilers,
-edit [`dls-repro/runtime-matrix.jsonc`](dls-repro/runtime-matrix.jsonc) and
-run `.\dls-repro\Run-RuntimeMatrix.ps1`.
+Each folder is a separate test package. Copy the complete folder for the
+test you want; neither needs the other folder or the repository root.
 
-## 1. Edit `comparison.json`
+| Test | What to copy | Run from inside the copy (PowerShell 7) |
+|---|---|---|
+| Build and check full OpenCV revisions | [`opencv-build`](opencv-build/README.md) | `.\Run-Comparison.ps1 -WorkParent C:\ocv` |
+| Compile and time the standalone DLS fill | [`dls-repro`](dls-repro/README.md) | `.\Run-DlsComparison.ps1` |
+| Compare warmed DLS runtimes across Windows and WSL toolchains | [`dls-repro`](dls-repro/matrix/README.md) | `.\Run-RuntimeMatrix.ps1` |
 
-Each object is one independent test. Replace its six source values:
-
-```json
-[
-  {
-    "label": "my-test",
-    "opencv-repo": "<owner>/<opencv-repository>",
-    "opencv-branch": "<branch>",
-    "opencv-commit": "<full lowercase 40-character SHA>",
-    "ci-gha-repo": "<owner>/<ci-workflow-repository>",
-    "ci-gha-branch": "<branch>",
-    "ci-gha-commit": "<full lowercase 40-character SHA>"
-  }
-]
-```
-
-Add/remove objects as needed (1-8 tests, in list order). `label` is optional;
-if provided, keep it unique. Each test builds its selected OpenCV commit using
-its selected CI action. Branches record provenance; commits select the code.
-
-## 2. Run
-
-On Windows, install PowerShell 7, Git/Git Bash and the matching native C++
-tools/SDK (Visual Studio 2019 on x64, 2022 on ARM64). Pass `-WorkParent` with a short,
-writable local path outside the checkout, such as `C:\ocv`. Longer paths can
-push generated MSBuild intermediate file names past the 259-character limit,
-stopping the run before compilation.
-
-```powershell
-.\Run-Comparison.ps1 -WorkParent C:\ocv
-```
-
-Dependencies and Git repositories are cached across runs; Python wheels respect local pip sources.
-Each test gets its own checkouts and build tree. `/nr:false` is test-only.
-
-By default, trusted-input mode skips repeated input integrity checks, assuming
-the source/package/cache files are not edited outside normal Git cache updates.
-`RepoIntegrityChecks` defaults to false. Use
-`.\Run-Comparison.ps1 -WorkParent C:\ocv -RepoIntegrityChecks:$true` to enable full checking.
-New dependency downloads, source/architecture identity checks and all build-result
-validation remain checked. Copies and manifest/evidence hashing are not skipped.
-
-## 3. Read the results
-
-The command prints the run directory under the specified `-WorkParent`
-(for example, `C:\ocv\run-<id>`).
-`summary.json` records progress/errors; `results\functional-summary.json`
-contains verified results after all tests pass, shaped like this
-(placeholders, not measurements):
-
-```json
-{
-  "status": "configured_comparison_passed",
-  "conditions": [
-    {
-      "label": "<test label>",
-      "status": "functional_build_passed",
-      "native_wall_seconds": "<build seconds>",
-      "selected_cpp_checks_passed": "<check count>"
-    }
-  ]
-}
-```
-
-Per-test logs and receipts are in `results\<ordinal>-<label>\export`.
-Timings are diagnostic, not proof of a speedup. See `COMPARISON.md` for limits
-and optional settings.
+The full-build launcher and `comparison.json` used to be at the repository
+root. They now live in `opencv-build`; update any saved command or custom
+config path accordingly. See each package's README for prerequisites.

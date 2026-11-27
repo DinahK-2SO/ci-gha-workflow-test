@@ -1,6 +1,6 @@
 # Independent source comparisons
 
-Use this repository root on Windows x64 or ARM64, or copy this
+Use the `opencv-build` folder on Windows x64 or ARM64, or copy this
 **entire folder** to another location. Include `scripts` and
 `source-manifest.json`; no parent directories or author-local study folders
 are needed. Keep your edited `comparison.json` when updating the source folder.
@@ -15,7 +15,7 @@ An already assembled comparison folder also works.
 2. Run from PowerShell 7:
 
    ```powershell
-   .\Run-Comparison.ps1
+   .\Run-Comparison.ps1 -WorkParent C:\ocv
    ```
 
 Invoking the script authorizes the listed local builds. No second confirmation
@@ -389,7 +389,7 @@ Ordinary users do not need this command: source-folder startup handles
 provisioning. The following legacy assembly path is useful when a verified
 local seed already exists and its dependencies should be copied instead.
 
-From this repository root, use a verified existing self-contained package:
+From inside this build-test folder, use a verified existing self-contained package:
 
 ```powershell
 .\New-ComparisonFolder.ps1 `
@@ -425,7 +425,7 @@ OpenCV comparison or native x64 hardware qualification.
 
 ## Updating bundled runtime sources (maintainers only)
 
-This standalone repository owns its bundled `scripts` sources. No external
+This standalone folder owns its bundled `scripts` sources. No external
 canonical source directory is required. After reviewing runtime edits, refresh
 the existing declared inventory's hashes (do not use this to approve unexpected
 or unreviewed content):
