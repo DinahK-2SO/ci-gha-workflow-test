@@ -13,7 +13,8 @@ param(
     [switch]$SampleResources,
     [switch]$IndependentCase,
     [string]$BuildContract,
-    [ValidateRange(1,2147483647)][int]$SharedCompilerJobs = 8
+    [ValidateRange(1,2147483647)][int]$SharedCompilerJobs = 8,
+    [ValidateRange(1,2147483647)][int]$MinimumFreeMemoryGiB = 24
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,7 +107,7 @@ if ($Action -eq 'Freeze') {
         build_timeout_seconds=1800
         total_study_build_budget_seconds=5400
         rest_seconds=30
-        minimum_free_memory_gib=24
+        minimum_free_memory_gib=$MinimumFreeMemoryGiB
         minimum_free_disk_gib=30
         cpu_background_is_observation_only=$true
         formal_measurement_cpu_limit_percent=10

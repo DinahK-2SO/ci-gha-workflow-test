@@ -69,6 +69,10 @@ function Assert-HandoffPackage([string]$Root,[switch]$SkipIntegrityChecks) {
 
 function Assert-HandoffProfile($Profile, $Manifest = $null) {
     $platform=Get-NativeBuildPlatform $Profile.architecture
+    $memory=$Profile.minimum_free_memory_gib
+    if (($memory -isnot [int] -and $memory -isnot [long]) -or $memory -lt 1 -or $memory -gt [int]::MaxValue) {
+        throw 'minimum_free_memory_gib must be a positive integer in GiB.'
+    }
     if ($Profile.generator -cne $platform.generator) {
         throw "The $($platform.architecture) profile requires the $($platform.generator) generator. Recreate the package from the source handoff."
     }

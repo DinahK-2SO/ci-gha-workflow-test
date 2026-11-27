@@ -100,9 +100,12 @@ $floating=$profile | ConvertTo-Json -Depth 5 | ConvertFrom-Json
 $floating.ci_dev.commit='main'
 $identical=$profile | ConvertTo-Json -Depth 5 | ConvertFrom-Json
 $identical.ci_dev.commit=$profile.ci_baseline.commit
+$noHeadroom=$profile | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+$noHeadroom.minimum_free_memory_gib=0
 $mismatch=$identity | ConvertTo-Json | ConvertFrom-Json
 $mismatch.review_commit='f'*40
 foreach ($case in @(
+    @{name='invalid-memory-headroom';profile=$noHeadroom;manifest=$identity;error='*positive integer in GiB*'},
     @{name='legacy-profile';profile=$legacy;manifest=$identity;error='*baseline/fixed*'},
     @{name='floating-commit';profile=$floating;manifest=$identity;error='*full fixed commit SHA*'},
     @{name='identical-commits';profile=$identical;manifest=$identity;error='*commits must differ*'},
@@ -423,11 +426,14 @@ Write-ComparisonJson @{} $contract
 $singleProtocol=Join-Path $root 'freeze\single.json'
 & $freeze -Action Freeze -IndependentCase -BuildContract $contract -ProtocolPath $singleProtocol `
     -ConfigurationReceipt $configurationPath -ReferenceHost $hostPath -ToolsFile $toolsPath `
-    -OutputRoot (Join-Path $root 'single-trial')
+    -OutputRoot (Join-Path $root 'single-trial') -MinimumFreeMemoryGiB 16
 $single=Get-Content $singleProtocol -Raw | ConvertFrom-Json
 if (($single.order -join '|') -cne 'baseline' -or $single.order -isnot [array] -or
     $single.comparison_axis -cne 'independent_sources' -or $single.build_contract -cne $contract) {
     throw 'An independent case lost its single execution slot or captured contract.'
+}
+if ($single.minimum_free_memory_gib -ne 16 -or $frozen.minimum_free_memory_gib -ne 24) {
+    throw 'Freeze did not preserve the requested or default free-memory gate.'
 }
 $checks += [ordered]@{test='single-case-protocol-with-captured-command';passed=$true}
 

@@ -28,6 +28,15 @@ Add/remove objects as needed (1-8 tests, in list order). `label` is optional;
 if provided, keep it unique. Each test builds its selected OpenCV commit using
 its selected CI action. Branches record provenance; commits select the code.
 
+`profile.json` controls the workload for every case. It disables CMake's
+optional Java and JNI discovery in the test's fresh build trees so that a
+host JDK does not add Java wrappers to the reference build. No JDK, `JAVA_HOME`
+or system setting is changed; keep the reference workload checks enabled.
+`minimum_free_memory_gib` (default 24) sets the free-RAM gate for preparation
+and for each native build. Set it only in the source copy for an approved
+functional run with a different budget. It is a start threshold, not a memory
+cap. Keep both cases on the same profile; do not edit an old run's protocol.
+
 ## 2. Run
 
 On Windows, install PowerShell 7, Git/Git Bash and the matching native C++

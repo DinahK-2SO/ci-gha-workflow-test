@@ -198,7 +198,8 @@ if ($Action -eq 'Prepare') {
         }
         & (Join-Path $scripts 'Invoke-CiPilot.ps1') -Action Freeze -ProtocolPath $protocolPath `
             -ConfigurationReceipt $configurationReceipt -ReferenceHost $hostPath `
-            -OutputRoot (Join-Path $work 'trials') -ToolsFile $toolsPath -SharedCompilerJobs $sharedCompilerJobs @freezeOptions
+            -OutputRoot (Join-Path $work 'trials') -ToolsFile $toolsPath -SharedCompilerJobs $sharedCompilerJobs `
+            -MinimumFreeMemoryGiB $profile.minimum_free_memory_gib @freezeOptions
         $record.status='prepared_for_functional_pair'
         $record.configuration=$configurationReceipt
         $record.protocol=$protocolPath
