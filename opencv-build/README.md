@@ -6,9 +6,15 @@ commands below from inside the copy; no parent checkout or sibling test
 package is needed. On a fresh machine, missing sources and dependencies
 still require network access.
 
-## 1. Edit `comparison.json`
+## 1. Select the comparison
 
-Each object is one independent test. Replace its six source values:
+The checked-in `comparison.json` is ready to run for [opencv/ci-gha-workflow#359](https://github.com/opencv/ci-gha-workflow/pull/359).
+Both cases build the same OpenCV 5.x commit (`c261e6e`); only the CI action
+changes, from the PR's merge base (`26e5e97`) to its pinned head (`a83c7a6`).
+No edits are needed for this comparison.
+
+For a different comparison, edit `comparison.json`. Each object is one
+independent test with six source values:
 
 ```json
 [
@@ -32,8 +38,8 @@ its selected CI action. Branches record provenance; commits select the code.
 optional Java and JNI discovery in the test's fresh build trees so that a
 host JDK does not add Java wrappers to the reference build. No JDK, `JAVA_HOME`
 or system setting is changed; keep the reference workload checks enabled.
-`minimum_free_memory_gib` (default 24) sets the free-RAM gate for preparation
-and for each native build. Set it only in the source copy for an approved
+`minimum_free_memory_gib` (16 GiB in this profile) sets the free-RAM gate
+for preparation and for each native build. Set it only in `profile.json` for an approved
 functional run with a different budget. It is a start threshold, not a memory
 cap. Keep both cases on the same profile; do not edit an old run's protocol.
 

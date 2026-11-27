@@ -1,30 +1,30 @@
 {
   "schema_version": 2,
-  "profile_id": "opencv5x-windows-arm64-functional-cdc7b11",
+  "profile_id": "opencv5x-windows-arm64-functional-a83c7a6",
   "comparison_axis": "baseline_vs_fixed_commit",
   "architecture": "ARM64",
   "generator": "Visual Studio 17 2022",
   "build_directory": "build-portable",
   "opencv": {
-    "repository": null,
+    "repository": "opencv/opencv",
     "branch_name": "5.x",
     "commit": "c261e6e4b4e4bf3c1bf4e7da23193943400579ca",
     "bundle": "sources/opencv.bundle",
     "bundle_ref": "refs/heads/5.x"
   },
   "ci_baseline": {
-    "repository": null,
+    "repository": "opencv/ci-gha-workflow",
     "branch_name": "main",
     "commit": "26e5e9767c2278b18eec51763a1a85de7a44cfc3",
     "bundle": "sources/ci.bundle",
     "bundle_ref": "refs/heads/main"
   },
   "ci_dev": {
-    "repository": null,
-    "branch_name": "perf/windows-msbuild-shared-budget",
-    "commit": "cdc7b11c152b1a6fde1267e5c3df5492b21451b6",
+    "repository": "DinahK-2SO/ci-gha-workflow",
+    "branch_name": "perf/windows-msbuild-shared-budget-publish",
+    "commit": "a83c7a68aca710f34bac42b25f8c7ef45edcee31",
     "bundle": "sources/ci.bundle",
-    "bundle_ref": "refs/heads/perf/windows-msbuild-shared-budget"
+    "bundle_ref": "refs/heads/perf/windows-msbuild-shared-budget-publish"
   },
   "configure_options": [
     "-DCL_Z_OPTION=/Z7",
@@ -43,7 +43,7 @@
   "compiler_budget_policy": "available_logical_processors",
   "build_timeout_seconds": 1800,
   "configure_timeout_seconds": 900,
-  "minimum_free_memory_gib": 24,
+  "minimum_free_memory_gib": 16,
   "minimum_free_disk_gib": 30,
   "conditions": ["baseline", "fixed"],
   "role": "functional_qualification",
